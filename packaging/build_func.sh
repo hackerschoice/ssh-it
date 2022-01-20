@@ -41,7 +41,7 @@ exists()
 	OSARCH="$1"
 	local FN
 	FN="$2"
-	[[ -f "${PKG_DIR}/${FN}.${OSARCH}" ]] && { warn "${FN}.${OSARCH} already exists. Skipping..."; echo -e >&2 "--> Try \"${CC}rm -rf ${PKG_TOP_DIR}${CN}\""; return 0; }
+	[[ -f "${PKG_DIR}/${FN}.${OSARCH}" ]] && { warn "${FN}.${OSARCH} already exists. Skipping..."; echo -e >&2 "--> Try \"${CC}rm -rf ${PKG_DIR}${CN}\""; return 0; }
 	return 1
 }
 

@@ -24,7 +24,8 @@ io_write(IO *io, void *data, size_t len, bool is_from_buf)
 		if (errno != EAGAIN)
 		{
 			io->ev_id = IO_EV_ERROR;
-			(*io->func)(io, IO_EV_ERROR, io->arg);
+			if (io->func != NULL)
+				(*io->func)(io, IO_EV_ERROR, io->arg);
 			return -1; // FATAL socket error
 		}
 
@@ -37,14 +38,16 @@ io_write(IO *io, void *data, size_t len, bool is_from_buf)
 		{
 			// Callback if socket was previously blocking
 			io->ev_id = IO_EV_WRITE_SUCCESS;
-			(*io->func)(io, IO_EV_WRITE_SUCCESS, io->arg);
+			if (io->func != NULL)
+				(*io->func)(io, IO_EV_WRITE_SUCCESS, io->arg);
 		}
 	} else {
 		// HERE: Not all bytes written.
 		if (io->ev_id != IO_EV_WRITE_BLOCKING)
 		{
 			io->ev_id = IO_EV_WRITE_BLOCKING;
-			(*io->func)(io, IO_EV_WRITE_BLOCKING, io->arg);
+			if (io->func != NULL)
+				(*io->func)(io, IO_EV_WRITE_BLOCKING, io->arg);
 		}
 	}
 
@@ -75,6 +78,13 @@ IO_write(IO *io, void *data, size_t len)
 
 	if (len == 0)
 		return 0;
+
+	if (IO_IS_PAUSED(io))
+	{
+		// DEBUGF_G("IO is paused. Buffering %zu bytes (already %zu)\n", len, GS_BUF_USED(&io->buf));
+		GS_BUF_add_data(&io->buf, data, len);
+		return len;
+	}
 
 	// If data in buffer then append new data to buffer first so that all can
 	// be written with a single call to write().
@@ -109,6 +119,15 @@ IO_flush(IO *io)
 		return -1;
 
 	return 0;
+}
+
+void
+IO_unpause(IO *io)
+{
+	io->flags &= ~IO_FL_PAUSED;
+
+	// DEBUGF_G("IO is UNpaused. Flushing %zu bytes\n", GS_BUF_USED(&io->buf));
+	IO_flush(io);
 }
 
 void

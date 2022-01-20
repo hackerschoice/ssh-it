@@ -223,7 +223,7 @@ mkdirp(const char *path)
 		{
 			// If it does not exist then set permissions
 			if (g.is_debug == false)
-				chmod(p_orig, 0333);  // d-wx-wx-wx
+				chmod(p_orig, THC_DIRPERM);
 		}
 
 		if (ptr == NULL)
@@ -382,4 +382,72 @@ THC_usec(void)
 	gettimeofday(&tv, NULL);
 	return THC_TV_TO_USEC(&tv);
 }
+
+// Write 'str' to file "direname""fname"
+// Return 0 on success.
+// Example: FILE_write_str(NULL, "foobar.txt", "hello world\n");
+// Example: FILE_write_str("/etc", "foobar.txt", "hello world\n");
+int
+FILE_write_str(const char *dirname, const char *fname, const char *str)
+{
+	FILE *fp;
+	char buf[1024];
+
+	if (dirname != NULL)
+		snprintf(buf, sizeof buf, "%s/%s", dirname, fname);
+	else
+		snprintf(buf, sizeof buf, "%s", fname);
+
+	fp = fopen(buf, "w");
+	if (fp == NULL)
+		return -1;
+
+	size_t sz = strlen(str);
+	size_t fsz;
+
+	fsz = fprintf(fp, buf, strlen(buf));
+	fclose(fp);
+
+	if (fsz != sz)
+		return -1;
+
+	return 0;
+}
+
+// BASH_escape(d, sizeof d, src, '"') would turn
+// 'ImA-"password' into 'ImA-\"password'
+// Return "" if there is not enough space or on error.
+char *
+BASH_escape(char *dst, size_t dsz, const char *src, char c)
+{
+	char *dend = dst + dsz;
+	char *dst_orig = dst;
+
+	dst[0] = '\0';
+	if (src == NULL)
+		return dst_orig;
+
+	while (1)
+	{
+		if (*src == '\0')
+			break;
+		if (dst + 1 >= dend)
+		{
+			dst_orig[0] = '\0';
+			return dst_orig;
+		}
+		if (*src == c)
+		{
+			*dst = '\\';
+			dst += 1;
+		}
+		*dst = *src;
+		dst += 1;
+		src += 1;
+	}
+	*dst = '\0';
+
+	return dst_orig;
+}
+
 

