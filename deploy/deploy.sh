@@ -56,7 +56,7 @@ errexit()
 
 OK_OUT()
 {
-	echo -e 1>&2 "......[${CG}OK${CN}]"
+	echo -e 2>&1 "......[${CG}OK${CN}]"
 	[[ -n "$1" ]] && echo -e 1>&2 "--> $*"
 }
 
