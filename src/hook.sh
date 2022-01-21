@@ -28,14 +28,12 @@ mk_package()
 	(cd "$THC_BASEDIR_LOCAL" 
 	if [[ -f "${THC_PACKAGE}" ]]; then
 		for f in $files; do
-			[[ "$f" -nt "${THC_PACKAGE}" ]] && { rm "${THC_PACKAGE}"; DEBUGF "Creating new package.2gz"; break; }
+			[[ "$f" -nt "${THC_PACKAGE}" ]] && { rm "${THC_PACKAGE}"; DEBUGF "Removing outdated package.2gz"; break; }
 		done
 	fi)
 
-	# [[ -n $THC_DEBUG ]] && [[ -f "${THC_PACKAGE}" ]] && rm -f "${THC_PACKAGE}"
-	# [[ -f "${THC_PACKAGE}" ]] && rm -f "${THC_PACKAGE}"
 	if [[ ! -f "${THC_PACKAGE}" ]]; then
-		DEBUGF "Creating ${THC_PACKAGE}..."
+		DEBUGF "Creating new ${THC_PACKAGE}..."
 		cat "${THC_BASEDIR_LOCAL}/x.sh" >>"${THC_PACKAGE}"
 		(cd "${THC_BASEDIR_LOCAL}" && \
 			tar cfhz - $files) >>"${THC_PACKAGE}"
@@ -74,7 +72,7 @@ if [[ "$1" = "install" ]]; then
 	THC_PACKAGE="${THC_BASEDIR_LOCAL}/package.2gz"
 	mk_package
 
-	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count=${FSIZE} 2>/dev/null)" || exit 94
+	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=${FSIZE} count=1 2>/dev/null)" || exit 94
 	exit
 fi
 
@@ -93,7 +91,7 @@ mk_package
 DEBUGF FSIZE=${FSIZE}
 # use -T for 'raw' terminal (no pty, no lastlog)
 # NOTE: Use 'exec' to have 1 less process showing up in ps list.
-exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FSIZE_BIN=\"${FSIZE_BIN}\" THC_TESTING=\"${THC_TESTING}\" THC_DEBUG=\"${THC_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=1 count=${FSIZE} 2>/dev/null)\" && echo THCFINISHED"
+exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FSIZE_BIN=\"${FSIZE_BIN}\" THC_TESTING=\"${THC_TESTING}\" THC_DEBUG=\"${THC_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=${FSIZE} count=1 2>/dev/null)\" && echo THCFINISHED"
 
 ### NOT REACHED if exec is used above ###
 ### NOT REACHED if exec is used above ###

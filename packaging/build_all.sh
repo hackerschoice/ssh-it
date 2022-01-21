@@ -28,7 +28,7 @@ add_gs-netcat()
 "${BASEDIR}/packaging/build_docker.sh" && \
 
 # Copy all other supporting files
-(cd "${BASEDIR}/src" && cp x.sh hook.sh "${PKG_DIR}/" || false ) && \
+(cd "${BASEDIR}/src" && cp x.sh hook.sh funcs thc_cli ssh_login.sh askpass.sh "${PKG_DIR}/" || false ) && \
 # Add gs-netcat if exist
 add_gs-netcat
 (cd "${PKG_TOP_DIR}" && \
