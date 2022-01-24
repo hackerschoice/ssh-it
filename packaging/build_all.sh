@@ -19,7 +19,7 @@ add_gs-netcat()
 		gsnc_dst="${PKG_DIR}/gsnc/gs-netcat.${OSARCH}"
 		[[ -f "${gsnc_tgz}" ]] || { warn "Not found: ${gsnc_tgz}"; continue; }
 		[[ "${gsnc_tgz}" -nt "${gsnc_dst}" ]] || { exists "$OSARCH" "gsnc/gs-netcat" && continue; }
-		(cd "${PKG_DIR}/gsnc" && tar xfz "${gsnc_tgz}" && chmod 755 gs-netcat && touch -r "${gsnc_tgz}" gs-netcat && mv gs-netcat "gs-netcat.${OSARCH}" ) || errexit "Aborted"
+		(cd "${PKG_DIR}/gsnc" && "${GTAR_BIN}" xfz "${gsnc_tgz}" && chmod 755 gs-netcat && touch -r "${gsnc_tgz}" gs-netcat && mv gs-netcat "gs-netcat.${OSARCH}" ) || errexit "Aborted"
 		ok "DONE adding gs-netcat.${OSARCH}"
 	done
 }
@@ -32,7 +32,7 @@ add_gs-netcat()
 # Add gs-netcat if exist
 add_gs-netcat
 (cd "${PKG_TOP_DIR}" && \
-	tar cfz ssh-it-pkg.tar.gz $TARUIDGID ssh-it-pkg && \
+	"${GTAR_BIN}" cfz ssh-it-pkg.tar.gz --owner 0 --group 0 ssh-it-pkg && \
 	ls -al ssh-it-pkg.tar.gz && \
 	md5sum ssh-it-pkg.tar.gz && \
 	true || false ) && \

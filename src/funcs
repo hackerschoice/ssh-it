@@ -32,3 +32,12 @@ ERREXIT()
 	exit "$code"
 }
 
+WARN()
+{
+	local code
+	code=$1
+	[[ -z $code ]] && code=255
+
+	shift 1
+	[[ -n $@ ]] && echo -e >&2 "${CY}WARN(${code}):${CN} $@"
+}

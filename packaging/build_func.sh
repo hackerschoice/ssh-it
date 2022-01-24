@@ -7,9 +7,6 @@ PKG_DIR="${BASEDIR}/packaging/ssh-it-pkg"
 PKG_TOP_DIR="$(dirname "$PKG_DIR")"
 SRCTGZ="${BASEDIR}/${PRGNAME}-${VER}.tar.gz"
 
-TARUIDGID="--owner 0 --group 0" #linux
-[[ $OSTYPE =~ darwin ]] && TARUIDGID="--uid 0 --gid 0"
-
 CY="\033[1;33m" # yellow
 CG="\033[1;32m" # green
 CR="\033[1;31m" # red
@@ -44,6 +41,12 @@ exists()
 	[[ -f "${PKG_DIR}/${FN}.${OSARCH}" ]] && { warn "${FN}.${OSARCH} already exists. Skipping..."; echo -e >&2 "--> Try \"${CC}rm -rf ${PKG_DIR}${CN}\""; return 0; }
 	return 1
 }
+
+
+GTAR_BIN="$(command -v gtar)"
+[[ -z $GTAR_BIN ]] && GTAR_BIN="$(command -v tar)"
+[[ -z $GTAR_BIN ]] && errexit "tar not found"
+[[ $($GTAR_BIN --version) = *GNU* ]] || errexit "GNU tar not found"
 
 mkdir -p "${PKG_DIR}" 2>/dev/null
 cd "${BASEDIR}"

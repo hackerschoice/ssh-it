@@ -110,6 +110,7 @@ struct _g
 
 #define THC_TV_TO_USEC(tv)               ((uint64_t)(tv)->tv_sec * 1000000 + (tv)->tv_usec)
 #define THC_SEC_TO_USEC(sec)             ((uint64_t)(sec) * 1000000)
+#define THC_MSEC_TO_USEC(sec)            ((uint64_t)(sec) * 1000)
 #define THC_USEC_TO_TV(tv, usec)         do { (tv)->tv_sec = (usec) / 1000000; (tv)->tv_usec = (usec) % 1000000; } while(0)
 #define THC_USEC_TO_SEC(usec)            ((usec) / 1000000)
 
