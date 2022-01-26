@@ -47,5 +47,5 @@ WARN()
 	[[ -z $code ]] && code=255
 
 	shift 1
-	[[ -n $@ ]] && echo -e >&2 "${CY}WARN(${code}):${CN} $@"
+	[[ -n $@ ]] && echo -e >&2 "${CY}WARNING(${code}):${CN} $@"
 }
