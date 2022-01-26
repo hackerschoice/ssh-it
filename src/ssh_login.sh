@@ -24,13 +24,12 @@ SSH_ARG="$(tail -n1 "${THC_PWD_FILE}" | cut -f2 -d\# | xargs)"
 SSH_BIN="$(command -v ssh 2>/dev/null)"
 [[ -z $SSH_BIN ]] && ERREXIT 126 "ssh not found"
 
-DEBUGF "SSH_ARG             = '$SSH_ARG'"
-DEBUGF "SSH_ARG_EXTRA       = $SSH_ARG_EXTRA"
-DEBUGF "SSH_PASSWORD        =${SSH_PASSWORD}"
-DEBUGF "SSH_ASKPASS         = ${SSH_ASKPASS}"
-DEBUGF "SSH_ASKPASS_REQUIRE = ${SSH_ASKPASS_REQUIRE}"
-DEBUGF "SSH_PASSWORD        = ${SSH_PASSWORD}"
-
+# DEBUGF "SSH_ARG             = '$SSH_ARG'"
+# DEBUGF "SSH_ARG_EXTRA       = $SSH_ARG_EXTRA"
+# DEBUGF "SSH_PASSWORD        = ${SSH_PASSWORD}"
+# DEBUGF "SSH_ASKPASS         = ${SSH_ASKPASS}"
+# DEBUGF "SSH_ASKPASS_REQUIRE = ${SSH_ASKPASS_REQUIRE}"
+# DEBUGF "SSH_PASSWORD        = ${SSH_PASSWORD}"
 
 # FIXME: some SSH-versions do not support SSH_ASKPASS_REQUIRED=force.
 # In this case we must undo the tty using setsid (if available).
