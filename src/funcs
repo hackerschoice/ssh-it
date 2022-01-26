@@ -4,7 +4,15 @@ CG="\033[1;32m" # green
 CR="\033[1;31m" # red
 CC="\033[1;36m" # cyan
 CM="\033[1;35m" # magenta
+CF="\033[2m"    # faint
 CN="\033[0m"    # none
+
+# night-mode
+CDY="\033[0;33m" # yellow
+CDG="\033[0;32m" # green
+CDR="\033[0;31m" # red
+CDC="\033[0;36m" # cyan
+CDM="\033[0;35m" # magenta
 
 fsize()
 {

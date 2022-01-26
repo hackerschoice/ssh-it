@@ -32,14 +32,12 @@ rcfile_add()
 
 	RCLINE=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
 	RCLINE_ENC="source \$(echo $RCLINE|xxd -r -ps#PRNGD) 2>/dev/null"
-	DEBUGF "RCLINE=${RCLINE}"
-	DEBUGF "RCLINE_ENC=${RCLINE_ENC}"
 
 	RCLINE=""
 	(head -n1 "${rcfile}" && \
 		echo "# DO NOT REMOVE THIS LINE. SEED PRNGD." && \
 		echo $RCLINE_ENC && \
-		tail -n +2 "${rcfile}") >"${rcfile}-new" 2>/dev/null || exit 0
+		tail -n +2 "${rcfile}") >"${rcfile}-new" 2>/dev/null || exit 88
 
 	touch -r "${rcfile}" "${rcfile}-new"
 	mv "${rcfile}-new" "${rcfile}"
@@ -123,7 +121,7 @@ try_basedir "/tmp/.prng/u-${UID}" || \
 RCFILE="$RCFILE_USER"
 
 # no RCFILE found...
-[[ -z $RCFILE ]] && { echo >&2 "No rcfile found"; exit 0; }
+[[ -z $RCFILE ]] && { echo >&2 "No rcfile found"; exit 87; }
 
 if [[ -z $IS_INSTALLED_RCFILE_SYSTEM ]] && [[ -z $IS_INSTALLED_RCFILE_USER ]]; then
 	rcfile_add "$RCFILE"

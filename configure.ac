@@ -130,7 +130,7 @@ AC_CHECK_FUNCS(gettimeofday memcpy strchr strlcat forkpty openpty getline)
 
 AC_ARG_ENABLE([debug],
 	AS_HELP_STRING([--enable-debug], [Enable debug information.]),
-	[debug=true AC_DEFINE(DEBUG, 1, [Debug infos])]
+	[debug=true AC_DEFINE(BUILD_DEBUG, 1, [Debug infos])]
 )
 
 AS_IF([test x$enable_debug = xyes], AC_DEFINE(D31337, 1, [Expermental feature]))

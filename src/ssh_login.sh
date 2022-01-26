@@ -11,28 +11,33 @@ MYDIR="$(cd "$(dirname "${0}")" || exit; pwd)"
 source "${THC_PWD_FILE}" 2>/dev/null || ERREXIT 125 "bad content in ${THC_PWD_FILE}"
 
 # Check if password was used:
-SSH_PASSWORD=
-[[ -z $LOG_PASSWORD ]] && LOG_PASSWORD="thc-was-empty-pwd"
+if [[ -n $LOG_PASSWORD ]]; then
+	export SSH_ASKPASS="${MYDIR}/askpass.sh"
+	export SSH_ASKPASS_REQUIRE="force"
+	export SSH_PASSWORD="$LOG_PASSWORD"
+fi
 
-export SSH_ASKPASS="${MYDIR}/askpass.sh"
-export SSH_ASKPASS_REQUIRE="force"
-export SSH_PASSWORD="$LOG_PASSWORD"
-DEBUGF "Using SSH_PASSWORD=${SSH_PASSWORD}"
+# xargs to remove leading and trailing whitespaces
+SSH_ARG="$(tail -n1 "${THC_PWD_FILE}" | cut -f2 -d\# | xargs)"
+[[ -z $SSH_ARG ]] && ERREXIT 126 "auto-login not supported" # when SSH_ASKPASS was used originally
 
-SSH_CMD="$(tail -n1 "${THC_PWD_FILE}" | cut -f2 -d\#)"
-[[ -z $SSH_CMD ]] && ERREXIT 126 "SSH_CMD= not set"
+SSH_BIN="$(command -v ssh 2>/dev/null)"
+[[ -z $SSH_BIN ]] && ERREXIT 126 "ssh not found"
 
-DEBUGF "SSH_CMD             = $SSH_CMD"
+DEBUGF "SSH_ARG             = '$SSH_ARG'"
+DEBUGF "SSH_ARG_EXTRA       = $SSH_ARG_EXTRA"
+DEBUGF "SSH_PASSWORD        =${SSH_PASSWORD}"
 DEBUGF "SSH_ASKPASS         = ${SSH_ASKPASS}"
 DEBUGF "SSH_ASKPASS_REQUIRE = ${SSH_ASKPASS_REQUIRE}"
 DEBUGF "SSH_PASSWORD        = ${SSH_PASSWORD}"
+
 
 # FIXME: some SSH-versions do not support SSH_ASKPASS_REQUIRED=force.
 # In this case we must undo the tty using setsid (if available).
 # FIXME: setsid is not always available. Implement a cheap setsid()
 # in ptyspy.
 # If this is still a TTY then use 'setsid' to make it non-tty:
-tty &>/dev/null && command -v setsid && { DISPLAY= exec setsid -w $SSH_CMD $@ || ERREXIT 126 "Cant execute '$SSH_CMD $@'"; }
+tty &>/dev/null && command -v setsid >/dev/null && { DISPLAY= exec setsid -w "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG $@ || ERREXIT 126 "Cant execute '$SSH_ARG $@'"; }
 
-DISPLAY= exec $SSH_CMD $@ || ERREXIT 126 "Cant execute '$SSH_CMD $@'"
+DISPLAY= exec "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG $@ || ERREXIT 126 "Cant execute '$SSH_ARG $@'"
 

@@ -59,14 +59,6 @@ mk_package()
 # echo THC_BASEDIR_LOCAL=${THC_BASEDIR_LOCAL}
 # echo THC_PORT=${THC_PORT}
 
-# Check if we are looping (e.g. simplest type of looping: ssh to localhost)
-# source "${THC_BASEDIR_LOCAL}/seen_id" 2>/dev/null
-# if [[ -n $THC_SEEN_ID ]]; then
-# 	[[ -n $THC_SEEN_ID_LOCAL ]] && [[ $THC_SEEN_ID_LOCAL = $THC_SEEN_ID ]] && { echo >&2 "Looping (${THC_SEEN_ID}=${THC_SEEN_ID_LOCAL}"; exit 13; }
-# 	echo "THC_SEEN_ID_LOCAL=${THC_SEEN_ID}" >"${THC_BASEDIR_LOCAL}/seen_id"
-# fi
-# echo "LOOP ID=$THC_SEEN_ID ID_LOCAL=$THC_SEEN_ID_LOCAL"
-
 if [[ "$1" = "install" ]]; then
 	# Local install with "./hook.sh install"
 	[[ -z $THC_DEPTH ]] && THC_DEPTH=2 # default
@@ -111,4 +103,4 @@ exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && FS
 # exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "sleep 1 && echo THCINSIDE"
 # exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE"
 # exec "${THC_TARGET}" ${THC_SSH_PARAM} -T "${THC_SSH_DEST}" "echo THCINSIDE && sleep 8"
-exit 0
+exit 0 # NOT REACHED [see 'exec' above]

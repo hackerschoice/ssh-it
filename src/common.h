@@ -14,6 +14,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 #include <stdbool.h>
 #ifdef HAVE_UNISTD_H
 # include <unistd.h>
@@ -86,7 +87,7 @@ struct _g
 #define D_BYEL(a)	"\033[1;33m"a"\033[0m"
 #define D_BBLU(a)	"\033[1;34m"a"\033[0m"
 #define D_BMAG(a)	"\033[1;35m"a"\033[0m"
-#ifdef DEBUG
+// #ifdef DEBUG
 # define DEBUGF(a...)   do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, a); }while(0)
 # define DEBUGF_R(a...) do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, "\033[1;31m"); xfprintf(g_dbg_fp, a); xfprintf(g_dbg_fp, "\033[0m"); }while(0)
 # define DEBUGF_G(a...) do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, "\033[1;32m"); xfprintf(g_dbg_fp, a); xfprintf(g_dbg_fp, "\033[0m"); }while(0)
@@ -95,18 +96,16 @@ struct _g
 # define DEBUGF_M(a...) do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, "\033[1;35m"); xfprintf(g_dbg_fp, a); xfprintf(g_dbg_fp, "\033[0m"); }while(0)
 # define DEBUGF_C(a...) do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, "\033[1;36m"); xfprintf(g_dbg_fp, a); xfprintf(g_dbg_fp, "\033[0m"); }while(0)
 # define DEBUGF_W(a...) do{ xfprintf(g_dbg_fp, "DEBUG-%d: ", __LINE__); xfprintf(g_dbg_fp, "\033[1;37m"); xfprintf(g_dbg_fp, a); xfprintf(g_dbg_fp, "\033[0m"); }while(0)
-# define DEBUG_SETID(xgs)    gs_did = (xgs)->fd
-#else
-# define DEBUGF(a...)
-# define DEBUGF_R(a...)
-# define DEBUGF_G(a...)
-# define DEBUGF_B(a...)
-# define DEBUGF_Y(a...)
-# define DEBUGF_M(a...)
-# define DEBUGF_C(a...)
-# define DEBUGF_W(a...)
-# define DEBUG_SETID(xgs)
-#endif
+// #else
+// # define DEBUGF(a...)
+// # define DEBUGF_R(a...)
+// # define DEBUGF_G(a...)
+// # define DEBUGF_B(a...)
+// # define DEBUGF_Y(a...)
+// # define DEBUGF_M(a...)
+// # define DEBUGF_C(a...)
+// # define DEBUGF_W(a...)
+// #endif
 
 #define THC_TV_TO_USEC(tv)               ((uint64_t)(tv)->tv_sec * 1000000 + (tv)->tv_usec)
 #define THC_SEC_TO_USEC(sec)             ((uint64_t)(sec) * 1000000)
@@ -130,7 +129,7 @@ struct _g
 #define XFD_SET(_fd, _rfd)    do{if (_fd < 0) break; FD_SET(_fd, (_rfd));}while(0)
 #define XFD_ISSET(_fd, _rfd)  (_fd)>=0?FD_ISSET((_fd), (_rfd)):0
 
-#ifdef DEBUG
+#ifdef BUILD_DEBUG
 # define ERREXIT(a...)   do { \
 	xfprintf(g_dbg_fp, "ERROR "); \
 	xfprintf(g_dbg_fp, "%s():%d ", __func__, __LINE__); \
