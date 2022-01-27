@@ -345,7 +345,7 @@ usage()
 "    exec <cmd> - Execute <cmd> on target [e.g. $PRG -r exec \"id; date\"]\n"\
 "    clean      - Clean logfiles and state information\n"\
 "    disable    - Disable interception\n"\
-"    uninstall  - Clean, Disable and Remove completly\n"\
+"    uninstall  - Clean, disable and completely remove\n"\
 "Example: $PRG -r list"
 
 	exit "$1"

