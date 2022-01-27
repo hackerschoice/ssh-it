@@ -320,8 +320,8 @@ init_vars()
 }
 
 DEBUGF "thc_cli host=$(hostname)[${USER}]"
-[[ -z $THC_BASEDIR ]] && ERREXIT 44 "THC_BASEDIR= is not set"
 
+funcs_init
 init_vars "$@"
 
 

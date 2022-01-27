@@ -144,7 +144,7 @@ thc_set1()
 		if [[ -f \"${THC_BASEDIR}/ssh\" ]]; then
 			THC_TARGET=\"\$THC_ORIG_SSH\" \"${THC_BASEDIR}/ssh\" \$@
 		else
-			\$THC_ORIG1 \$@
+			\$THC_ORIG_SSH \$@
 		fi
 	}
 	#sudo()
@@ -152,7 +152,7 @@ thc_set1()
 	#	if [[ -f \"${THC_BASEDIR}/sudo\" ]]; then
 	#		THC_TARGET=\"\$THC_ORIG_SUDO\" \"${THC_BASEDIR}/sudo\" \$@
 	#	else
-	#		\$THC_ORIG2 \$@
+	#		\$THC_ORIG_SUDO \$@
 	#	fi
 	#}
 	which()

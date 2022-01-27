@@ -49,3 +49,11 @@ WARN()
 	shift 1
 	[[ -n $@ ]] && echo -e >&2 "${CY}WARNING(${code}):${CN} $@"
 }
+
+funcs_init()
+{
+	if [[ -z $THC_BASEDIR ]]; then
+		source "${HOME}/.prng/seed" &>/dev/null || ERREXIT 44 "THC_BASEDIR= is not set and ~/.prng/seed not found"
+		[[ -z $THC_BASEDIR ]] && ERREXIT 45 "THC_BASEDIR= is not set and ~/.prng/seed not found"
+	fi
+}
