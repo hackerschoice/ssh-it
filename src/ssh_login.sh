@@ -19,6 +19,7 @@ fi
 
 # xargs to remove leading and trailing whitespaces
 SSH_ARG="$(tail -n1 "${THC_PWD_FILE}" | cut -f2 -d\# | xargs)"
+
 [[ -z $SSH_ARG ]] && ERREXIT 126 "auto-login not supported" # when SSH_ASKPASS was used originally
 
 SSH_BIN="$(command -v ssh 2>/dev/null)"
@@ -36,7 +37,7 @@ SSH_BIN="$(command -v ssh 2>/dev/null)"
 # FIXME: setsid is not always available. Implement a cheap setsid()
 # in ptyspy.
 # If this is still a TTY then use 'setsid' to make it non-tty:
-tty &>/dev/null && command -v setsid >/dev/null && { DISPLAY= exec setsid -w "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG $@ || ERREXIT 126 "Cant execute '$SSH_ARG $@'"; }
+tty &>/dev/null && command -v setsid >/dev/null && { DISPLAY= exec setsid -w "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG "$1" || ERREXIT 126 "Cant execute '$SSH_ARG $1'"; }
 
-DISPLAY= exec "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG $@ || ERREXIT 126 "Cant execute '$SSH_ARG $@'"
+DISPLAY= exec "$SSH_BIN" $SSH_ARG_EXTRA $SSH_ARG "$1" || ERREXIT 126 "Cant execute '$SSH_ARG $1'"
 

