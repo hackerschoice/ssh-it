@@ -114,8 +114,9 @@ init_vars()
 	[[ -n $THC_NO_VERBOSE ]] && unset THC_VERBOSE
 
 	if [[ -n $THC_DEBUG ]]; then
-		[[ -z $THC_NO_USELOCAL ]] && THC_USELOCAL=1
-		[[ -z $THC_NO_VERBOSE ]] && THC_VERBOSE=1
+		# [[ -z $THC_NO_USELOCAL ]] && THC_USELOCAL=1
+		# [[ -z $THC_NO_VERBOSE ]] && THC_VERBOSE=1
+		:
 	fi
 
 	try_tmpdir "${TMPDIR}"

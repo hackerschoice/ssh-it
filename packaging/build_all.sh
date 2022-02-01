@@ -29,8 +29,8 @@ add_gs-netcat()
 
 # Copy all other supporting files
 (cd "${BASEDIR}/src" && cp x.sh hook.sh funcs thc_cli ssh_login.sh askpass.sh "${PKG_DIR}/" || false ) && \
-# Add gs-netcat if exist
-add_gs-netcat
+# Add gs-netcat if exist && \
+# add_gs-netcat && \
 (cd "${PKG_TOP_DIR}" && \
 	"${GTAR_BIN}" cfz ssh-it-pkg.tar.gz --owner 0 --group 0 ssh-it-pkg && \
 	ls -al ssh-it-pkg.tar.gz && \

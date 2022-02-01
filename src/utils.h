@@ -26,6 +26,7 @@ void mkdirp(const char *path);
 char *find_bin_in_path(char *bin, int pos);
 void cmd_failed_exit(const char *cmd);
 int FILE_write_str(const char *dirname, const char *fname, const char *str);
+char *BASH_escape_squote(char *dst, size_t dsz, const char *src);
 char *BASH_escape(char *dst, size_t dsz, const char *src, char c);
 
 void stty_set_pwd(int fd);
