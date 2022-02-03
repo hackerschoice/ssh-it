@@ -43,7 +43,7 @@ env2array()
 	while :; do
 		eval x="\$${2}_${n}"
 		[[ -z $x ]] && break
-		eval "${1}"+='('"$x"')'
+		eval "${1}"+='('\""$x"\"')'
 		n="$((n+1))"
 	done
 }

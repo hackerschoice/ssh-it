@@ -59,7 +59,6 @@ env2array "SSH_ARGV" "THC_SSH_INF_ARG"
 # DEBUGF "THC_BASEDIR_REL=${THC_BASEDIR_REL}"
 # DEBUGF "THC_BASEDIR_LOCAL=${THC_BASEDIR_LOCAL}"
 # DEBUGF "THC_PORT=${THC_PORT}"
-DEBUGF "SSH_ARGV=${SSH_ARGV[*]}"
 
 if [[ "$1" = "install" ]]; then
 	# Local install with "./hook.sh install"
