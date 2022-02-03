@@ -1,3 +1,4 @@
+# shellcheck disable=SC2034 # unused variable warning for ansi colors
 
 CY="\033[1;33m" # yellow
 CG="\033[1;32m" # green
@@ -17,7 +18,7 @@ CDM="\033[0;35m" # magenta
 fsize()
 {
 	# Linux / OSX
-	echo $(stat -L -c%s "$1" 2>/dev/null || stat -L -f%z "$1" 2>/dev/null)
+	stat -L -c%s "$1" 2>/dev/null || stat -L -f%z "$1" 2>/dev/null
 }
 
 strip_ansi(){ sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g'; }
@@ -30,14 +31,31 @@ else
 	DEBUGF_R(){ echo -e "${CY}DEBUG:${CN} ${CR}$*${CN}";}
 fi
 
+# Example: env2array "VAR_ARGV" ENV_ARG"
+# Construct bash array $VAR_ARGV[@] from $ENV_ARG_0, $ENV_ARG_1, etc
+env2array()
+{
+	local n
+	local x
+	n=0
+
+	eval "${1}=()"
+	while :; do
+		eval x="\$${2}_${n}"
+		[[ -z $x ]] && break
+		eval "${1}"+='('"$x"')'
+		n="$((n+1))"
+	done
+}
+
 ERREXIT()
 {
 	local code
-	code=$1
+	code="$1"
 	[[ -z $code ]] && code=99
 
 	shift 1
-	[[ -n $@ ]] && echo -e >&2 "${CR}ERROR:${CN} $@"
+	[[ -n $1 ]] && echo -e >&2 "${CR}ERROR:${CN} $*"
 
 	exit "$code"
 }
@@ -45,11 +63,11 @@ ERREXIT()
 WARN()
 {
 	local code
-	code=$1
+	code="$1"
 	[[ -z $code ]] && code=255
 
 	shift 1
-	[[ -n $@ ]] && echo -e >&2 "${CY}WARNING(${code}):${CN} $@"
+	echo -e >&2 "${CY}WARNING(${code}):${CN} $*"
 }
 
 funcs_init()

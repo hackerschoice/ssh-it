@@ -59,7 +59,6 @@ struct _g
 	char *host;
 	char *login_name;
 	char *keyfile;
-	char ssh_param[8196];   // The original args 
 	char *ssh_destination;
 	int fd_log;
 	int fd_log_in;

