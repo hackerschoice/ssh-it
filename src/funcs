@@ -48,6 +48,23 @@ env2array()
 	done
 }
 
+# Convert a command line into an array of ARGV arguments.
+# cmdline2array ARGV -i ~/.ssh/id_rsa
+# cmdline2array ARGV -i ~/.ssh/id\ rsa
+# cmdline2array ARGV -i '~/.ssh/id rsa'
+# => Will all result in an array of size 2
+# There is no easy way but using the xarg/bash trick :/
+cmdline2array()
+{
+	local line
+	# Double eval: 1st: To turn $1 to argument string. 2nd to turn ~/.ssh to /home/user/.ssh
+	line="$(echo "$2" | xargs bash -c 'n=0; while [[ $n -le ${#} ]]; do eval eval echo "\$${n}"; n=$((n+1)); done')"
+	# echo "LINES=$line"
+	IFS=$'\n' eval "${1}=(\$line)"
+	IFS=" "
+}
+
+
 ERREXIT()
 {
 	local code
