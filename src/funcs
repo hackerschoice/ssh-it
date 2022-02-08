@@ -15,6 +15,9 @@ CDR="\033[0;31m" # red
 CDC="\033[0;36m" # cyan
 CDM="\033[0;35m" # magenta
 
+# Clear from cursor to end of line
+CL="\033[0K"
+
 fsize()
 {
 	# Linux / OSX
