@@ -185,7 +185,7 @@ recursive()
 
 		# Recursive. No need to login if DEPTH is 0 here (e.g. we did not infiltrate remote)
 		if [[ "$THC_DEPTH" -gt 0 ]] || [[ -n $THC_CLI_ARG ]]; then
-			NEW_T_PREFIX="${THC_T_PREFIX}│   "
+			NEW_T_PREFIX="${THC_T_PREFIX}_"
 			[[ -n $IS_MARK_PX_LAST ]] && [[ $n -eq 0 ]] && NEW_T_PREFIX="${THC_T_PREFIX}    " # last host, no "|" needed
 
 			# Must escape [`$"'] so that 'bash -c' does not evaluate them. In particular we like this to work:
@@ -202,7 +202,7 @@ recursive()
 
 			# We need to consider the special case when we got the login credentials but
 			# SSH-IT is not installed on the remote host. In this case we still like to execute
-			# our command but must do so without ~/.prng/thc_cli being available on the remote host.
+			# our command but must do so without ~/.config/prng/thc_cli being available on the remote host.
 			if [[ -n $THC_CLI_ARG ]]; then
 				# shellcheck disable=SC2001
 				NEW_THC_CLI_ARG="$(echo "$THC_CLI_ARG"|sed 's/[`\\$\"'"'"']/\\&/g')"
@@ -210,12 +210,12 @@ recursive()
 
 				# Use 'kill $$' to detect if command executed successfully (neater would be to use 'set -o pipefail'
 				# but the remote shell might not be a bash shell....)
-				new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
+				new_arg="source .config/prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
 					THC_IS_REMOTE=1 THC_CLI_ARG=\"$NEW_THC_CLI_ARG\" THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" \
 					THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || \
 					{ echo -e \"[${CDR}SSH-IT not installed${CN}]\"; (bash -c \"$NEW_THC_CLI_ARG\" 2>&1 || kill \$\$) | sed 's/\x1B\[[0-9;]\{1,\}[A-Za-z]//g' | while read -r l; do echo -e \"${nPX}│${CF}\$l${CN}\"; done && echo >&2 \"THC_SUCCESSMARK\"; }"
 			else
-				new_arg="source .prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
+				new_arg="source .config/prng/seed 2>/dev/null && [[ -f \"\${THC_BASEDIR}/thc_cli\" ]] && THC_SEEN_ID=\"${THC_SEEN_ID_LOCAL}\" \
 					THC_IS_REMOTE=1 THC_CLI_ARG=\"$NEW_THC_CLI_ARG\" THC_DEBUG=\"${THC_DEBUG}\" THC_T_PREFIX=\"${NEW_T_PREFIX}\" \
 					THC_SSH_DESTINATION=\"${LOG_SSH_DESTINATION}\" \"\${THC_BASEDIR}/thc_cli\" -r \"$cmd\" || \
 					{ echo -e \"[${CDR}SSH-IT not installed${CN}\"]; false; }"

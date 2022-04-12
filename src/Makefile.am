@@ -13,7 +13,7 @@ install-exec-hook:
 	./hook.sh install 
 
 uninstall-hook:
-	./x.sh uninstall
+	./thc_cli -f uninstall
 	-echo DONE
 
 noinst_HEADERS = common.h utils.h io.h buf.h

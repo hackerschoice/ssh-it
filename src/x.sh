@@ -26,21 +26,32 @@ OK_OUT()
 	[[ -n $1 ]] && echo -e 1>&2 "--> $*"
 }
 
+install_to_file()
+{
+	local fname="$1"
+
+	shift 1
+
+	touch -r "${fname}" "${fname}-ts" || return
+
+	D="$(IFS=$'\n'; head -n1 "${fname}" && \
+		echo "${*}" && \
+		tail -n +2 "${fname}")"
+	echo "$D" >"${fname}"
+
+	touch -r "${fname}-ts" "${fname}"
+	rm -f "${fname}-ts"
+}
+
 rcfile_add()
 {
 	local rcfile="$1"
+	local rcline
 
-	RCLINE=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
-	RCLINE_ENC="source \$(echo $RCLINE|xxd -r -ps#PRNGD) 2>/dev/null"
+	rcline=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
+	RCLINE_ENC="source \$(echo $rcline|xxd -r -ps#PRNGD) 2>/dev/null"
 
-	RCLINE=""
-	(head -n1 "${rcfile}" && \
-		echo "# DO NOT REMOVE THIS LINE. SEED PRNGD." && \
-		echo $RCLINE_ENC && \
-		tail -n +2 "${rcfile}") >"${rcfile}-new" 2>/dev/null || exit 88
-
-	touch -r "${rcfile}" "${rcfile}-new"
-	mv "${rcfile}-new" "${rcfile}"
+	install_to_file "${rcfile}" "# DO NOT REMOVE THIS LINE. SEED PRNGD." "$RCLINE_ENC"
 }
 
 try_basedir()
@@ -100,10 +111,10 @@ osarch()
 
 # Find a writeable base dir
 try_basedir "${THC_BASEDIR}" || \
-try_basedir "${HOME}/.prng" || \
+try_basedir "${HOME}/.config/prng" || \
 try_basedir "/dev/shm/.prng/u-${UID}" || \
 try_basedir "/tmp/.prng/u-${UID}" || \
-{ echo >&2 "Can't find a suitable directory."; exit 98; }
+{ echo >&2 "Can't find a suitable directory. Try THC_BASEDIR=\"\${HOME}/.config/prng\"."; exit 98; }
 
 # deterime if system-side is already installed
 # Exit if installed in either of the two system wide include scripts
@@ -135,8 +146,10 @@ fi
 
 ### Add my stub file that is sourced from rcfile on login
 echo "export THC_BASEDIR=\"${THC_BASEDIR}\"
-export THC_VERBOSE=\"${THC_VERBOSE}\"
-export THC_TESTING=\"${THC_TESTING}\"
+THC_VERBOSE=\"${THC_VERBOSE}\"
+[[ -n \"\$THC_VERBOSE\" ]] && export THC_VERBOSE || unset THC_VERBOSE
+THC_TESTING=\"${THC_TESTING}\"
+[[ -n \"\$THC_TESTING\" ]] && export THC_TESTING || unset THC_TESTING
 THC_PS_NAME=\"\$(basename \$SHELL 2>/dev/null)\"
 export THC_PS_NAME=\"-\${THC_PS_NAME:-bash}\"
 THC_ORIG_SSH=\"\$(command -v ssh)\"

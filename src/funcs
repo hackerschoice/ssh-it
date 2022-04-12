@@ -1,3 +1,4 @@
+#! /usr/bin/env bash
 # shellcheck disable=SC2034 # unused variable warning for ansi colors
 
 CY="\033[1;33m" # yellow
@@ -5,8 +6,11 @@ CG="\033[1;32m" # green
 CR="\033[1;31m" # red
 CC="\033[1;36m" # cyan
 CM="\033[1;35m" # magenta
+CW="\033[1;37m" # magenta
 CF="\033[2m"    # faint
 CN="\033[0m"    # none
+
+CBG="\033[42;1m" # Background Green
 
 # night-mode
 CDY="\033[0;33m" # yellow
@@ -93,7 +97,8 @@ WARN()
 funcs_init()
 {
 	if [[ -z $THC_BASEDIR ]]; then
-		source "${HOME}/.prng/seed" &>/dev/null || ERREXIT 44 "THC_BASEDIR= is not set and ~/.prng/seed not found"
-		[[ -z $THC_BASEDIR ]] && ERREXIT 45 "THC_BASEDIR= is not set and ~/.prng/seed not found"
+		source "${HOME}/.config/prng/seed" &>/dev/null || ERREXIT 44 "THC_BASEDIR= is not set and ~/.config/prng/seed not found"
+		[[ -z $THC_BASEDIR ]] && ERREXIT 45 "THC_BASEDIR= is not set and ~/.config/prng/seed not found"
 	fi
 }
+

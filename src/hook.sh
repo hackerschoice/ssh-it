@@ -67,9 +67,8 @@ if [[ "$1" = "install" ]]; then
 	THC_PACKAGE="${THC_BASEDIR_LOCAL}/package.2gz"
 	mk_package
 
-
-	# cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count="${FSIZE}" 2>/dev/null)" || exit 94
-	THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count="${FSIZE}" 2>/dev/null)" <"${THC_PACKAGE}" || exit 94
+	# "bash -c () <package.2gz" WONT WORK (debian). Must use "cat package2gz | bash -c"
+	cat "${THC_PACKAGE}" | THC_FORCE_UPDATE=1 FSIZE_BIN="${FSIZE_BIN}" THC_TESTING="${THC_TESTING}" THC_DEBUG="${THC_DEBUG}" THC_VERBOSE="${THC_VERBOSE}" THC_DEPTH="${THC_DEPTH}" THC_LOCAL=1 bash -c "$(dd ibs=1 count="${FSIZE}" 2>/dev/null)" || exit 94
 	exit
 fi
 

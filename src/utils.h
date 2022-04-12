@@ -34,6 +34,7 @@ void stty_set_raw(int fd);
 void stty_set_passthrough(int fd, struct termios *tios_orig);
 
 uint64_t THC_usec(void);
+char *THC_getenv(const char *name);
 
 
 const char *THC_logtime(void);
