@@ -48,10 +48,22 @@ rcfile_add()
 	local rcfile="$1"
 	local rcline
 
-	rcline=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
-	RCLINE_ENC="source \$(echo $rcline|xxd -r -ps#PRNGD) 2>/dev/null"
+	# check that xxd is working as expected (alpine linux does not have -r option)
+	if [[ "$(echo "thcwashere" | xxd -ps -c1024 2>/dev/null| xxd -r -ps 2>/dev/null)" = "thcwashere" ]]; then
+		# Use absolute path decoding-binary in case PATH is not set when rcfile is
+		# evaluated.
+		ENC_BIN="$(command -v xxd)"
+		rcline=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
+		RCLINE_ENC="\$(echo $rcline|${ENC_BIN} -r -ps 2>/dev/null)"
+	if [[ "$(echo "thcwashere" | openssl base64 -A 2>/dev/null| openssl base64 -A -d 2>/dev/null)" = "thcwashere" ]]; then
+		ENC_BIN="$(command -v openssl)"
+		rcline=$(echo "${THC_BASEDIR}"'/seed' |openssl base64 -A)
+		RCLINE_ENC="\$(echo $rcline|${ENC_BIN} base64 -A -d 2>/dev/null)"
+	else
+		RCLINE_ENC="${THC_BASEDIR}/seed"
+	fi
 
-	install_to_file "${rcfile}" "# DO NOT REMOVE THIS LINE. SEED PRNGD." "$RCLINE_ENC"
+	install_to_file "${rcfile}" "# DO NOT REMOVE THIS LINE. SEED PRNGD." "source \"$RCLINE_ENC\" 2>/dev/null #PRNGD"
 }
 
 try_basedir()
