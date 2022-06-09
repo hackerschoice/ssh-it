@@ -483,13 +483,6 @@ n_failed=0
 n_success=0
 n=0
 
-[[ -n $THC_DEBUG ]] && {
-for c in "${CMD_LIST[@]}"; do
-	DEBUGF "Trying '$c'"
-	continue
-done
-exit
-}
 
 for c in "${CMD_LIST[@]}"; do
 	n=$((n+=1))
